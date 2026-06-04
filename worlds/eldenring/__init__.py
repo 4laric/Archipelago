@@ -2551,6 +2551,13 @@ class EldenRing(World):
             "apIdsToItemIds": ap_ids_to_er_ids,
             "itemCounts": item_counts,
             "locationIdsToKeys": location_ids_to_keys,
+            # ER-stack ENCODING / slot_data contract version range (what decisions A–E
+            # define), NOT any binary's release number. Enforced by BOTH the static
+            # randomizer at bake AND the runtime client at connect, each checking its
+            # implemented contract version against this range (single source of truth).
+            # Pre-1.0 MVP: per-build lockstep — every contract change bumps beta.N across
+            # apworld + randomizer + client. Graduate to ">=0.1.0 <0.2.0" once A–E freeze.
+            "versions": ">=0.1.0-beta.1 <0.1.0-beta.2",
         }
 
         return slot_data
