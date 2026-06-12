@@ -251,6 +251,34 @@ class MissableLocationBehaviorOption(Choice):
     option_do_not_randomize = 3
     default = 2
 
+class NoWeaponRequirements(Toggle):
+    """Remove all stat requirements from weapons, ammo, and spells.
+
+    Anything the multiworld hands you is immediately usable regardless of build —
+    useful when your weapon progression is at the mercy of the item pool.
+    """
+    display_name = "No Weapon Requirements"
+
+class DungeonSweep(Choice):
+    """Beating a dungeon's boss automatically sends every remaining check in that dungeon.
+
+    - **None:** Normal behavior; every check must be picked up individually.
+    - **Minidungeons:** Catacombs, caves, tunnels, heroes' graves, and gaols sweep when
+      their boss dies.
+    - **All:** Minidungeons plus legacy dungeons (Stormveil, Raya Lucaria, Volcano Manor,
+      Leyndell, Farum Azula, the Haligtree, Mohgwyn Palace, and the DLC legacy dungeons),
+      which sweep when their main (remembrance) boss dies.
+
+    Swept shop checks are sent without purchase, and swept quest checks skip their
+    questlines (this also rescues missable NPC checks inside dungeons). Note this can
+    send 30+ checks at once, which affects pacing for everyone else in the multiworld.
+    """
+    display_name = "Dungeon Sweep"
+    option_none = 0
+    option_minidungeons = 1
+    option_all = 2
+    default = 0
+
 @dataclass
 class EROptions(PerGameCommonOptions):
     ending_condition: EndingCondition
@@ -284,6 +312,8 @@ class EROptions(PerGameCommonOptions):
     exclude_locations: ERExcludeLocations
     excluded_location_behavior: ExcludedLocationBehaviorOption
     missable_location_behavior: MissableLocationBehaviorOption
+    dungeon_sweep: DungeonSweep
+    no_weapon_requirements: NoWeaponRequirements
 
 option_groups = [
     OptionGroup("Equipment", [

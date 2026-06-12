@@ -2498,11 +2498,25 @@ class EldenRing(World):
             if item.name not in items_by_name:
                 items_by_name[item.name] = item
 
+        # Pack the item category into the top nibble of the game id, matching BOTH the game's own
+        # "gib" encoding and the static randomizer's ItemKey.FullID (weapon=0, armor=1<<28,
+        # accessory/talisman=2<<28, goods=4<<28, ash of war/gem=8<<28). The raw er_code alone is
+        # ambiguous (armor 2901 vs goods 2901): shipping it unpacked made the randomizer decode
+        # every non-weapon id as WEAPON and the client grant armor as goods.
+        # Contract change: slot_data "versions" bumped to beta.2 (lockstep with randomizer+client).
+        category_nibbles = {
+            ERItemCategory.GOODS: 0x40000000,
+            ERItemCategory.WEAPON: 0x00000000,
+            ERItemCategory.ARMOR: 0x10000000,
+            ERItemCategory.ACCESSORY: 0x20000000,
+            ERItemCategory.ASHOFWAR: 0x80000000,
+        }
         ap_ids_to_er_ids: Dict[str, int] = {}
         item_counts: Dict[str, int] = {}
         for item in items_by_name.values():
             if item.ap_code is None: continue
-            if item.er_code: ap_ids_to_er_ids[str(item.ap_code)] = item.er_code
+            if item.er_code:
+                ap_ids_to_er_ids[str(item.ap_code)] = item.er_code | category_nibbles[item.category]
             if item.count != 1: item_counts[str(item.ap_code)] = item.count
 
         # A map from Archipelago's location IDs to the keys the static randomizer uses to identify
@@ -2513,6 +2527,84 @@ class EldenRing(World):
             if (location.address is not None and location.item.code is not None
                     and location.data.key):
                 location_ids_to_keys[location.address] = location.data.key
+
+        # Goal locations for ending_condition 2/3 (all remembrances / all bosses): the client
+        # can't detect these via a single event flag, so ship the exact location set that the
+        # Victory rule uses; the client sends CLIENT_GOAL once all of them are checked.
+        goal_locations: List[int] = []
+        if self.options.ending_condition >= 2:
+            if self.options.ending_condition == 2:
+                goal_names = set(self.location_name_groups["Remembrance"])
+                if self.options.enable_dlc:
+                    goal_names |= set(self.location_name_groups["Remembrance DLC"])
+            else:
+                goal_names = set(self.location_name_groups["Boss Reward"])
+                if self.options.enable_dlc:
+                    goal_names |= set(self.location_name_groups["Boss Reward DLC"])
+            for location in self._get_our_locations():
+                if location.address is not None and location.name in goal_names:
+                    goal_locations.append(location.address)
+
+        # Dungeon sweep (SPEC-dungeon-sweep.md): map of trigger location -> all location ids
+        # in that dungeon. The client watches the trigger's guarding event flag (already in
+        # apconfig's location_flags, since triggers are boss-drop lots) and sends every member
+        # check when it fires. Logic deliberately does NOT model this (early arrivals are safe).
+        dungeon_sweeps: Dict[str, List[int]] = {}
+        if self.options.dungeon_sweep != 0:
+            regions_to_locs: Dict[str, List[ERLocation]] = {}
+            for location in self._get_our_locations():
+                if location.address is None: continue  # events
+                regions_to_locs.setdefault(location.parent_region.name, []).append(location)
+
+            def add_sweep(trigger: ERLocation, members: List[ERLocation]) -> None:
+                ids = [l.address for l in members if l.address is not None]
+                if trigger.address is not None and len(ids) > 1:
+                    dungeon_sweeps[str(trigger.address)] = ids
+
+            # Minidungeons: self-contained single-region dungeons, detected by their boss-class
+            # location tags. Trigger = the prominent boss drop (fallback: first boss drop).
+            minidungeon_tags = ("catacombboss", "graveboss", "caveboss", "tunnelboss",
+                                "gaolboss", "minidungeonboss")
+            for region_name, locs in regions_to_locs.items():
+                boss_locs = [l for l in locs
+                             if any(getattr(l.data, tag, False) for tag in minidungeon_tags)]
+                if not boss_locs: continue
+                trigger = next((l for l in boss_locs if l.data.prominent), boss_locs[0])
+                add_sweep(trigger, locs)
+
+            # Legacy dungeons (option "all" only): explicit region groups; trigger = the
+            # group's prominent remembrance (mainboss) drop. Groups whose regions aren't in
+            # this seed (e.g. DLC off) silently drop out.
+            if self.options.dungeon_sweep == 2:
+                legacy_groups = [
+                    ["Stormveil Start", "Stormveil Castle", "Stormveil Throne"],
+                    ["Raya Lucaria Academy", "Raya Lucaria Academy Main",
+                     "Raya Lucaria Academy Chest", "Raya Lucaria Academy Library"],
+                    ["Volcano Manor", "Volcano Manor Entrance", "Volcano Manor Upper",
+                     "Volcano Manor Dungeon", "Volcano Manor Drawing Room"],
+                    ["Leyndell, Royal Capital", "Leyndell, Royal Capital Unmissable",
+                     "Leyndell, Royal Capital Throne"],
+                    ["Leyndell, Ashen Capital", "Leyndell, Ashen Capital Throne"],
+                    ["Farum Azula", "Farum Azula Main"],
+                    ["Miquella's Haligtree", "Elphael, Brace of the Haligtree"],
+                    ["Mohgwyn Palace"],
+                    # DLC
+                    ["Belurat", "Belurat Swamp"],
+                    ["Castle Ensis"],
+                    ["Shadow Keep", "Shadow Keep Storehouse", "Shadow Keep Storehouse Back",
+                     "Shadow Keep, West Rampart", "Shadow Keep, Church District",
+                     "Shadow Keep, Church District Lower"],
+                    ["Midra's Manse"],
+                    ["Stone Coffin Fissure"],
+                    ["Enir Ilim"],
+                ]
+                for group in legacy_groups:
+                    locs = [l for region in group for l in regions_to_locs.get(region, [])]
+                    if not locs: continue
+                    rem_locs = [l for l in locs if l.data.remembrance]
+                    if not rem_locs: continue
+                    trigger = next((l for l in rem_locs if l.data.prominent), rem_locs[0])
+                    add_sweep(trigger, locs)
 
         slot_data = {
             "options": {
@@ -2545,19 +2637,32 @@ class EldenRing(World):
                 "exclude_locations": self.options.exclude_locations.value,
                 "excluded_location_behavior": self.options.excluded_location_behavior.value,
                 "missable_location_behavior": self.options.missable_location_behavior.value,
+                "dungeon_sweep": self.options.dungeon_sweep.value,
+                # Deliberately a REAL bool (not 0/1 like the toggles above): the static
+                # randomizer's options dict only admits JSON booleans, and this one is
+                # consumed there (ConvertRandomizerOptions -> opt["weaponreqs"]).
+                "no_weapon_requirements": bool(self.options.no_weapon_requirements.value),
             },
             "seed": self.multiworld.seed_name,  # to verify the server's multiworld
             "slot": self.multiworld.player_name[self.player],  # to connect to server
             "apIdsToItemIds": ap_ids_to_er_ids,
             "itemCounts": item_counts,
             "locationIdsToKeys": location_ids_to_keys,
+            # Optional; only present when dungeon_sweep != none. Consumed by the runtime
+            # client only — the static randomizer ignores it.
+            "dungeonSweeps": dungeon_sweeps,
+            # Locations whose full completion = goal, for ending_condition 2/3 (empty
+            # otherwise). Consumed by the runtime client only.
+            "goalLocations": goal_locations,
             # ER-stack ENCODING / slot_data contract version range (what decisions A–E
             # define), NOT any binary's release number. Enforced by BOTH the static
             # randomizer at bake AND the runtime client at connect, each checking its
             # implemented contract version against this range (single source of truth).
             # Pre-1.0 MVP: per-build lockstep — every contract change bumps beta.N across
             # apworld + randomizer + client. Graduate to ">=0.1.0 <0.2.0" once A–E freeze.
-            "versions": ">=0.1.0-beta.1 <0.1.0-beta.2",
+            # beta.2: apIdsToItemIds values are now category-packed (top nibble: weapon=0,
+            # armor=1, accessory=2, goods=4, ash-of-war=8) instead of raw er_codes.
+            "versions": ">=0.1.0-beta.2 <0.1.0-beta.3",
         }
 
         return slot_data

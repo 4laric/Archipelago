@@ -1,0 +1,31 @@
+diff --git a/worlds/eldenring/__init__.py b/worlds/eldenring/__init__.py
+index b52aad6..3c66007 100644
+--- a/worlds/eldenring/__init__.py
++++ b/worlds/eldenring/__init__.py
+@@ -2551,6 +2551,13 @@ class EldenRing(World):
+             "apIdsToItemIds": ap_ids_to_er_ids,
+             "itemCounts": item_counts,
+             "locationIdsToKeys": location_ids_to_keys,
++            # ER-stack ENCODING / slot_data contract version range (what decisions A–E
++            # define), NOT any binary's release number. Enforced by BOTH the static
++            # randomizer at bake AND the runtime client at connect, each checking its
++            # implemented contract version against this range (single source of truth).
++            # Pre-1.0 MVP: per-build lockstep — every contract change bumps beta.N across
++            # apworld + randomizer + client. Graduate to ">=0.1.0 <0.2.0" once A–E freeze.
++            "versions": ">=0.1.0-beta.1 <0.1.0-beta.2",
+         }
+ 
+         return slot_data
+diff --git a/worlds/eldenring/locations.py b/worlds/eldenring/locations.py
+index 9aed9ec..53c1dc6 100644
+--- a/worlds/eldenring/locations.py
++++ b/worlds/eldenring/locations.py
+@@ -3136,7 +3136,7 @@ location_tables: Dict[str, List[ERLocationData]] = {
+         ERLocationData("CL/MEW: Flame-Shrouding Cracked Tear - boss drop", "Flame-Shrouding Cracked Tear", key="604740,0:0000065280::", altboss=True, nocrawl=True, overworldboss=True, caelid_boss=True),
+         ERLocationData("CL/MEW: Cracked Pot - N of NEW on root", "Cracked Pot", key="604740,0:0000066190::"),
+         ERLocationData("CL/CR: Whirl, O Flame! - scarab to NW", "Whirl, O Flame!", key="604740,0:0000540400::", scarab=True),
+-        ERLocationData("CL/(FR): Golden Rune [5] - in NE ruin", "Golden Rune [5]", "Golden Rune [5]", key="604740,0:1047407000::"),
++        ERLocationData("CL/(FR): Golden Rune [5] - in NE ruin", "Golden Rune [5]", key="604740,0:1047407000::"),
+         ERLocationData("CL/(FR): Smithing Stone [4] - middle of ruins", "Smithing Stone [4]", key="604740,0:1047407020::"),
+         ERLocationData("CL/MEW: Somber Smithing Stone [4] - E of MEW, chair way NW of CR grace", "Somber Smithing Stone [4]", key="604740,0:1047407030::"),
+         ERLocationData("CL/CR: Explosive Bolt x6 - in camp to N", "Explosive Bolt x6", key="604740,0:1047407040::"),
