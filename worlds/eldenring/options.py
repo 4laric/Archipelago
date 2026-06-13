@@ -267,7 +267,8 @@ class DungeonSweep(Choice):
       their boss dies.
     - **All:** Minidungeons plus legacy dungeons (Stormveil, Raya Lucaria, Volcano Manor,
       Leyndell, Farum Azula, the Haligtree, Mohgwyn Palace, and the DLC legacy dungeons),
-      which sweep when their main (remembrance) boss dies.
+      which sweep when their main (remembrance) boss dies, plus self-contained castle
+      regions (Caria Manor, Fog Rift Fort), which sweep on their boss drop.
 
     Swept shop checks are sent without purchase, and swept quest checks skip their
     questlines (this also rescues missable NPC checks inside dungeons). Note this can

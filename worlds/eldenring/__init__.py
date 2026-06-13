@@ -2597,6 +2597,14 @@ class EldenRing(World):
                     ["Midra's Manse"],
                     ["Stone Coffin Fissure"],
                     ["Enir Ilim"],
+                    # DLC ruins that ARE their own regions and whose deepest boss
+                    # drops a remembrance, so they qualify for the legacy rule as-is
+                    # (trigger = the remembrance). Finger Ruins -> Metyr, Mother of
+                    # Fingers; Rauh ruins -> Romina, Saint of the Bud. Overworld ruins
+                    # folded into a parent region (most of them) do NOT belong here --
+                    # see SPEC-ruins-sweep.md for the ruinsboss-tag route for those.
+                    ["Finger Ruins of Miyr", "Finger Ruins of Rhia", "Finger Ruins of Dheo"],
+                    ["Ancient Ruins of Rauh", "Rauh Ruins Limited"],
                 ]
                 for group in legacy_groups:
                     locs = [l for region in group for l in regions_to_locs.get(region, [])]
