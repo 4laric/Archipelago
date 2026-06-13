@@ -70,46 +70,45 @@ class EldenRing(World):
         self.all_excluded_locations.update(self.options.exclude_locations.value)
         # self.all_priority_locations.update(self.options.priority_locations.value)
 
-        for locations in location_tables.values(): # this didn't work :(
+        # Important locations -> AP PRIORITY (forced to hold a progression item). A location
+        # qualifies if ANY selected class matches it. (Previously a stray `break` inside the
+        # per-class loop exited after the FIRST selected class, so e.g. the default
+        # ["Remembrance","Seedtree","Map"] only ever applied "Remembrance".)
+        dlc = bool(self.options.enable_dlc)
+        priority_class_predicates = {
+            "remembrance": lambda loc: loc.remembrance,
+            "seedtree":    lambda loc: loc.seedtree,
+            "basin":       lambda loc: loc.basin,
+            "church":      lambda loc: loc.church,
+            "map":         lambda loc: loc.map,
+            "fragment":    lambda loc: loc.fragment and dlc,
+            "cross":       lambda loc: loc.cross and dlc,
+            "revered":     lambda loc: loc.revered and dlc,
+            "keyitem":     lambda loc: loc.keyitem,
+            "boss":        lambda loc: loc.boss,
+        }
+        selected_priority_classes = [
+            c for c in (t.lower() for t in self.options.important_locations.value)
+            if c in priority_class_predicates
+        ]
+        # Dedicated tri-state options can also push a class to priority ("to important").
+        if self.options.flask_upgrade_option.value == 1:
+            selected_priority_classes += ["seedtree", "church"]
+        if self.options.blessing_option.value == 1 and dlc:
+            selected_priority_classes += ["fragment", "revered"]
+        for locations in location_tables.values():
             for loc in locations:
-                for loc_type in self.options.important_locations.value:
-                    match loc_type.lower():
-                        case "remembrance":
-                            if loc.remembrance:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "seedtree":
-                            if loc.seedtree:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "basin":
-                            if loc.basin:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "church":
-                            if loc.church:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "map":
-                            if loc.map:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "fragment":
-                            if loc.fragment and self.options.enable_dlc:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "cross":
-                            if loc.cross and self.options.enable_dlc:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "revered":
-                            if loc.revered and self.options.enable_dlc:
-                                self.all_priority_locations.update({loc.name})
-                            break
-                        case "keyitem":
-                            if loc.keyitem:
-                                self.all_priority_locations.update({loc.name})
-                            break
+                if any(priority_class_predicates[c](loc) for c in selected_priority_classes):
+                    self.all_priority_locations.update({loc.name})
+        # do_not_randomize categories are vanilla-locked, so they must NOT also be priority
+        # (overrides important_locations / the above for the affected classes).
+        if self.options.flask_upgrade_option.value == 2 or (self.options.blessing_option.value == 2 and dlc):
+            for locations in location_tables.values():
+                for loc in locations:
+                    if self.options.flask_upgrade_option.value == 2 and (loc.seedtree or loc.church):
+                        self.all_priority_locations.discard(loc.name)
+                    if self.options.blessing_option.value == 2 and dlc and (loc.fragment or loc.revered):
+                        self.all_priority_locations.discard(loc.name)
         
         if self.settings.disable_extreme_options:
             if not self.options.local_item_option:
@@ -147,6 +146,33 @@ class EldenRing(World):
             if self.options.dlc_timing != 2:
                 item_table["Pureblood Knight's Medal"].classification = ItemClassification.progression
         
+        # Promote build-relevant filler to "useful": all weapons, armor, talismans and
+        # ashes of war, plus upgrade stones, larval/crystal tears, and spirit ashes among
+        # GOODS. Useful items are kept out of missable/excluded locations (default
+        # forbid_useful) and may spread in multiworld; this never touches progression.
+        _useful_cats = {ERItemCategory.WEAPON, ERItemCategory.ARMOR,
+                        ERItemCategory.ACCESSORY, ERItemCategory.ASHOFWAR}
+        for _tbl in (item_table, item_table_vanilla):
+            for _data in _tbl.values():
+                if _data.classification != ItemClassification.filler:
+                    continue
+                _n = _data.name.lower()
+                if (_data.category in _useful_cats
+                        or "smithing stone" in _n
+                        or "larval tear" in _n
+                        or "crystal tear" in _n
+                        or _n.endswith(" ashes") or "spirit ash" in _n
+                        # bigger rune-drop consumables (Golden Rune [13], Numen's, Hero's,
+                        # Lord's, Leda's, Marika's, Shadow Realm [2]+). Smaller runes stay filler.
+                        or (_data.runes is not None and _data.runes >= 10000)):
+                    _data.classification = ItemClassification.useful
+                    _data.filler = False  # useful items shouldn't be generated as pad filler
+        # Drop anything just demoted from the pad-filler pools.
+        filler_item_names[:] = [n for n in filler_item_names
+                                if item_table.get(n) is None or item_table[n].filler]
+        filler_item_names_vanilla[:] = [n for n in filler_item_names_vanilla
+                                if item_table_vanilla.get(n) is None or item_table_vanilla[n].filler]
+
         exclude_local_item_only_lowercase = [key.lower() for key in self.options.exclude_local_item_only.value]
         using_table = item_table_vanilla
         if self.options.enable_dlc: using_table = item_table
@@ -601,6 +627,29 @@ class EldenRing(World):
         for item in using_table.values(): # loop of whole item table
             if self.options.map_option.value == 1 and item.map: # add all maps to start inv
                 self.multiworld.push_precollected(self.create_item(item.name))
+
+        # Spirit Calling Bell + Flask of Wondrous Physick are inert without their
+        # companion items (Spirit Ashes / Crystal Tears), so optionally hand them over
+        # up front (default) or lock them at their vanilla spots. See BellPhysickOption.
+        bell_physick = [
+            ("Spirit Calling Bell", "LG/(CE): Spirit Calling Bell - talk to Ranni"),
+            ("Flask of Wondrous Physick", "LG(TCM): Flask of Wondrous Physick - in basin or at RH after 2 great runes"),
+        ]
+        if self.options.bell_physick_option.value == 0:  # start with (copy also left in pool, like maps)
+            for _name, _loc in bell_physick:
+                self.multiworld.push_precollected(self.create_item(_name))
+        elif self.options.bell_physick_option.value == 1:  # lock at vanilla (removed from pool)
+            for _name, _loc in bell_physick:
+                _item = next((i for i in self.local_itempool if i.name == _name), None)
+                if _item is None: continue
+                self.local_itempool.remove(_item)
+                self.multiworld.get_location(_loc, self.player).place_locked_item(_item)
+
+        # Flask upgrades / blessings -> lock at vanilla when do_not_randomize.
+        if self.options.flask_upgrade_option.value == 2:
+            self._lock_class_at_vanilla(lambda d: d.seedtree or d.church)
+        if self.options.blessing_option.value == 2 and self.options.enable_dlc:
+            self._lock_class_at_vanilla(lambda d: d.fragment or d.revered)
         
         if self.options.map_option.value == 2:
             self.multiworld.get_location("LG/(GR): Map: Limgrave, West - map pillar", self.player).place_locked_item(self.create_item("Map: Limgrave, West"))
@@ -628,6 +677,18 @@ class EldenRing(World):
                 self.multiworld.get_location("CC/CCC: Map: Southern Shore - to N on path", self.player).place_locked_item(self.create_item("Map: Southern Shore"))
                 self.multiworld.get_location("RB/TTR: Map: Rauh Ruins - map pillar to E behind wall", self.player).place_locked_item(self.create_item("Map: Rauh Ruins"))
                 self.multiworld.get_location("AW/AC: Map: Abyss - map pillar NW of AC", self.player).place_locked_item(self.create_item("Map: Abyss"))
+
+    def _lock_class_at_vanilla(self, predicate: Callable[[ERLocationData], bool]) -> None:
+        """Lock every available location matching predicate to its vanilla item and remove
+        that item from the random pool, keeping item/location counts balanced."""
+        for location in self._get_our_locations():
+            if location.address is None or location.locked: continue
+            if not predicate(location.data): continue
+            name = location.data.default_item_name
+            item = next((i for i in self.local_itempool if i.name == name), None)
+            if item is None: continue
+            self.local_itempool.remove(item)
+            location.place_locked_item(item)
 
     def _fill_local_item(
         self, name: str,
@@ -817,13 +878,23 @@ class EldenRing(World):
         self._add_entrance_rule("Volcano Manor", 
                                 lambda state: state.has("Drawing-Room Key", self.player)
                                 or self._can_go_to(state, "Volcano Manor Dungeon")) 
-        self._add_entrance_rule("Volcano Manor Dungeon", 
-                                lambda state: self._can_go_to(state, "Raya Lucaria Academy Main") 
-                                or self._can_go_to(state, "Volcano Manor"))
+        if self.options.deathless_routing:
+            # Deathless: exclude the Raya Lucaria abduction (a death-based shortcut) from
+            # logic; the Manor complex must be reached legitimately (Drawing-Room Key via
+            # Mt. Gelmir, then down into the dungeon).
+            self._add_entrance_rule("Volcano Manor Dungeon",
+                                    lambda state: self._can_go_to(state, "Volcano Manor"))
+        else:
+            self._add_entrance_rule("Volcano Manor Dungeon",
+                                    lambda state: self._can_go_to(state, "Raya Lucaria Academy Main")
+                                    or self._can_go_to(state, "Volcano Manor"))
         
         self._add_entrance_rule("Leyndell, Royal Capital", lambda state: self._has_enough_great_runes(state, self.options.great_runes_required.value))
+        # Great Runes to access the final boss: gate the Erdtree (Radagon / Elden Beast).
+        # Default 0 = no extra requirement.
+        self._add_entrance_rule("Erdtree", lambda state: self._has_enough_great_runes(state, self.options.great_runes_final_boss.value))
         
-        self._add_entrance_rule("Mountaintops of the Giants", lambda state: self._can_go_to(state, "Forbidden Lands") and state.has("Rold Medallion", self.player))
+        self._add_entrance_rule("Mountaintops of the Giants", lambda state: self._can_go_to(state, "Forbidden Lands") and state.has("Rold Medallion", self.player) and self._has_enough_great_runes(state, self.options.great_runes_mountaintops.value))
         
         self._add_entrance_rule("Hidden Path to the Haligtree", lambda state: 
             state.has("Haligtree Secret Medallion (Left)", self.player) and
@@ -2622,6 +2693,9 @@ class EldenRing(World):
                 "region_boss_type": self.options.region_boss_type.value,
                 "soft_logic": self.options.soft_logic.value,
                 "great_runes_required": self.options.great_runes_required.value,
+                "great_runes_final_boss": self.options.great_runes_final_boss.value,
+                "great_runes_mountaintops": self.options.great_runes_mountaintops.value,
+                "deathless_routing": self.options.deathless_routing.value,
                 "royal_access": self.options.royal_access.value,
                 "enable_dlc": self.options.enable_dlc.value,
                 "messmer_kindle": self.options.messmer_kindle.value,
@@ -2650,6 +2724,16 @@ class EldenRing(World):
                 # randomizer's options dict only admits JSON booleans, and this one is
                 # consumed there (ConvertRandomizerOptions -> opt["weaponreqs"]).
                 "no_weapon_requirements": bool(self.options.no_weapon_requirements.value),
+                # Tier-A enemy-rando sub-toggles + Serpent-Hunter tweak. Shipped as REAL
+                # bools (not 0/1) so they survive the static randomizer's bool-only
+                # options filter, same as no_weapon_requirements above.
+                "swap_multiboss": bool(self.options.swap_multiboss.value),
+                "boss_runes_match": bool(self.options.boss_runes_match.value),
+                "impolite_enemies": bool(self.options.impolite_enemies.value),
+                "disable_serpent_hunter_upgrade": bool(self.options.disable_serpent_hunter_upgrade.value),
+                "bell_physick_option": self.options.bell_physick_option.value,
+                "flask_upgrade_option": self.options.flask_upgrade_option.value,
+                "blessing_option": self.options.blessing_option.value,
             },
             "seed": self.multiworld.seed_name,  # to verify the server's multiworld
             "slot": self.multiworld.player_name[self.player],  # to connect to server

@@ -59,6 +59,28 @@ class GreatRunesRequired(Range):
     range_end = 7
     default = 2
     
+class GreatRunesFinalBoss(Range):
+    """How many great runes are required to access the final boss (the Erdtree:
+    Radagon / Elden Beast). 0 means no additional great-rune requirement."""
+    display_name = "Final Boss Great Runes Required"
+    range_start = 0
+    range_end = 7
+    default = 0
+
+class GreatRunesMountaintops(Range):
+    """How many great runes are required to enter the Mountaintops of the Giants,
+    in addition to the Rold Medallion. 0 means no great-rune requirement."""
+    display_name = "Mountaintops Great Runes Required"
+    range_start = 0
+    range_end = 7
+    default = 0
+
+class DeathlessRouting(Toggle):
+    """Exclude the Volcano Manor abduction (a death-based shortcut from Raya Lucaria) from
+    logic. With this on, the Manor complex must be reached legitimately via Mt. Gelmir and
+    the Drawing-Room Key rather than by being abducted."""
+    display_name = "Deathless Routing"
+
 class RoyalAccess(Toggle):
     """Keep Royal Capital graces accessable after it becomes ashen."""
     display_name = "Royal Capital Accessable"
@@ -199,6 +221,7 @@ class ERImportantLocations(OptionList):
     - [13] *Cross*: All cross items.
     - [26] *Revered*: Revered Spirit Ashes.
     - [21] *KeyItem*: Key items.
+    - [~52] *Boss*: Major boss drops (broader than Remembrance; can over-constrain).
     
     The *total* amount of priority checks should be below:
     - **Vanilla**: [90] 
@@ -206,7 +229,7 @@ class ERImportantLocations(OptionList):
     """
     display_name = "Important Locations"
     default = ["Remembrance", "Seedtree", "Map"]
-    valid_keys_casefold = ["Remembrance", "Seedtree", "Basin", "Church", "Map", "Fragment", "Cross", "Revered", "KeyItem"]
+    valid_keys_casefold = ["Remembrance", "Seedtree", "Basin", "Church", "Map", "Fragment", "Cross", "Revered", "KeyItem", "Boss"]
 
 class ERExcludeLocations(ExcludeLocations):
     """Prevent these locations from having an important items.
@@ -280,6 +303,75 @@ class DungeonSweep(Choice):
     option_all = 2
     default = 0
 
+class SwapMultiBoss(Toggle):
+    """Enemy randomizer: swap bosses between multi-boss fights (mini-dungeon bosses only).
+    Only has an effect when the Enemy Randomizer is enabled."""
+    display_name = "Swap Multi-Boss Fights"
+
+class BossRunesMatchOriginal(Toggle):
+    """Enemy randomizer: a relocated boss drops the runes the original occupant of that
+    spot would have dropped, instead of its own. Only applies with Enemy Randomizer on."""
+    display_name = "Boss Runes Match Original"
+
+class ImpoliteEnemies(Toggle):
+    """Enemy randomizer: make enemies less passive in groups (they aggro more readily).
+    Only has an effect when the Enemy Randomizer is enabled."""
+    display_name = "Impolite Enemies"
+
+class DisableSerpentHunterUpgrade(Toggle):
+    """Disable upgrading the Serpent-Hunter greatspear (a niche base-randomizer balance
+    tweak). Applies whether or not the Enemy Randomizer is on."""
+    display_name = "Disable Serpent-Hunter Upgrade"
+
+class BellPhysickOption(Choice):
+    """How to handle the Spirit Calling Bell and Flask of Wondrous Physick. Both are inert
+    on their own -- the bell needs Spirit Ashes, the flask needs Crystal Tears -- so a random
+    early pickup of either sits useless until its companions turn up.
+
+    - **Start With:** granted at the start of the run (a copy is also left in the pool).
+    - **Do Not Randomize:** locked at their vanilla locations (Ranni / Third Church of Marika).
+    - **Randomize:** shuffled into the pool like any other item.
+    """
+    display_name = "Bell & Physick Handling"
+    option_start_with = 0
+    option_do_not_randomize = 1
+    option_randomize = 2
+    default = 0
+
+
+class FlaskUpgradeOption(Choice):
+    """How to handle flask upgrades -- Golden Seeds (flask charges) and Sacred Tears (flask
+    potency).
+
+    - **Randomize:** shuffled into the pool; their locations are normal checks.
+    - **To Important Locations:** their locations are forced to hold progression items
+      (same effect as listing Seedtree/Church in important_locations).
+    - **Do Not Randomize:** Golden Seeds and Sacred Tears stay at their vanilla locations
+      (this overrides important_locations for those classes).
+    """
+    display_name = "Flask Upgrade Handling"
+    option_randomize = 0
+    option_to_important = 1
+    option_do_not_randomize = 2
+    default = 0
+
+class BlessingOption(Choice):
+    """How to handle Shadow Realm blessings -- Scadutree Fragments and Revered Spirit Ashes
+    (DLC only; ignored when the DLC is off).
+
+    - **Randomize:** shuffled into the pool; their locations are normal checks.
+    - **To Important Locations:** their locations are forced to hold progression items
+      (same effect as listing Fragment/Revered in important_locations).
+    - **Do Not Randomize:** blessings stay at their vanilla locations (overrides
+      important_locations for those classes).
+    """
+    display_name = "Shadow Realm Blessing Handling"
+    option_randomize = 0
+    option_to_important = 1
+    option_do_not_randomize = 2
+    default = 0
+
+
 @dataclass
 class EROptions(PerGameCommonOptions):
     ending_condition: EndingCondition
@@ -288,6 +380,9 @@ class EROptions(PerGameCommonOptions):
     region_boss_type: RegionBossType
     soft_logic: RegionSoftLogic
     great_runes_required: GreatRunesRequired
+    great_runes_final_boss: GreatRunesFinalBoss
+    great_runes_mountaintops: GreatRunesMountaintops
+    deathless_routing: DeathlessRouting
     royal_access: RoyalAccess
     enable_dlc: EnableDLC
     messmer_kindle: MessmerKindle
@@ -315,8 +410,22 @@ class EROptions(PerGameCommonOptions):
     missable_location_behavior: MissableLocationBehaviorOption
     dungeon_sweep: DungeonSweep
     no_weapon_requirements: NoWeaponRequirements
+    swap_multiboss: SwapMultiBoss
+    boss_runes_match: BossRunesMatchOriginal
+    impolite_enemies: ImpoliteEnemies
+    disable_serpent_hunter_upgrade: DisableSerpentHunterUpgrade
+    bell_physick_option: BellPhysickOption
+    flask_upgrade_option: FlaskUpgradeOption
+    blessing_option: BlessingOption
 
 option_groups = [
+    OptionGroup("World Logic", [
+        WorldLogic,
+        GreatRunesRequired,
+        GreatRunesFinalBoss,
+        GreatRunesMountaintops,
+        DeathlessRouting,
+    ]),
     OptionGroup("Equipment", [
         RandomizeStartingLoadout,
         AutoEquipOption,
@@ -340,5 +449,15 @@ option_groups = [
         ERExcludeLocations,
         ExcludedLocationBehaviorOption,
         MissableLocationBehaviorOption,
-    ])
+        DisableSerpentHunterUpgrade,
+        BellPhysickOption,
+        FlaskUpgradeOption,
+        BlessingOption,
+    ]),
+    OptionGroup("Enemy Randomizer", [
+        EnemyRando,
+        SwapMultiBoss,
+        BossRunesMatchOriginal,
+        ImpoliteEnemies,
+    ]),
 ]
