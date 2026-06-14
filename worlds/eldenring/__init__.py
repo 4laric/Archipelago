@@ -2759,19 +2759,13 @@ class EldenRing(World):
                 return True
             if name in ("Tarnished's Furled Finger", "Finger Severer"):
                 return True
-            # Alaric: keep "graveyard" rune clusters (thematic early checks), not all runes;
-            # SKIP the low-count Golden Runes ([1]-[3]) -- keep [4]+ and the bigger rune types.
+            # Alaric: keep the LOCATIONS of ALL graveyard rune drops as checks (thematic early
+            # checks) -- every tier, every rune type. The low-value runes themselves are made
+            # skippable on the ITEM side: create_items demand-drops small Golden Runes [1]-[5]
+            # from the item pool, so a kept graveyard location just holds whatever the fill
+            # assigns. Location membership and rune-item skipping are intentionally decoupled.
             if "graveyard" in (data.name or "").lower():
-                if name.startswith("Golden Rune ["):
-                    try:
-                        _tier = int(name[name.index("[") + 1:name.index("]")])
-                    except ValueError:
-                        _tier = 0
-                    if _tier >= 4:
-                        return True
-                elif any(name.startswith(w) for w in
-                         ("Hero's Rune", "Rune Arc", "Numen's Rune", "Lord's Rune")):
-                    return True
+                return True
             return False
         # pool == 2 (lean): only meaningful checks (+ anything holding a progression item)
         _lean = ("boss", "altboss", "catacombboss", "graveboss", "caveboss", "tunnelboss",

@@ -200,6 +200,20 @@ class SmithingBellBearingOption(Choice):
     option_do_not_randomize = 2
     default = 1
     
+class MerchantBellLogic(Choice):
+    """Gate merchant shop checks behind that merchant's Bell Bearing.
+
+    - **Off:** Merchant shops are in logic as normal.
+    - **Logic Only:** A merchant's shop checks require receiving that merchant's Bell
+      Bearing (promoted to an in-pool progression item), pulling those checks out of
+      sphere 1. Only merchants whose bell has a real world drop are gated. Logic-only:
+      no physical relocation of stock. See docs/er/SPEC-merchant-bells.md.
+    """
+    display_name = "Merchant Bell Bearing Logic"
+    option_off = 0
+    option_logic_only = 1
+    default = 0
+
 class SpellShopSpellsOnly(Toggle):
     """Spell Shops only have spells."""
     display_name = "Spell Shop Spells Only"
@@ -438,6 +452,7 @@ class EROptions(PerGameCommonOptions):
     crafting_kit_option: CraftingKitOption
     map_option: MapOption
     smithing_bell_bearing_option: SmithingBellBearingOption
+    merchant_bell_logic: MerchantBellLogic
     spell_shop_spells_only: SpellShopSpellsOnly
     early_legacy_dungeons:EarlyLegacyDungeonsEarly
     local_item_option: LocalItemOnly
