@@ -81,6 +81,18 @@ class DeathlessRouting(Toggle):
     the Drawing-Room Key rather than by being abducted."""
     display_name = "Deathless Routing"
 
+class GracesPerRegion(Range):
+    """Region fusion (TODO #13): how many Sites of Grace to unlock per region when you receive
+    that region's lock item (fast travel into the region, no Torrent slog). Graces are chosen by
+    spatial spread (a central hub first, then maximum coverage) so the picks are useful, not
+    clustered. 0 = unlock ALL of the region's graces (most convenient, least exploration).
+    1 = just a warp-in hub. Higher = more coverage. Only takes effect with region gating
+    (world_logic region_lock / region_bosses) and a client that consumes regionGraces."""
+    display_name = "Graces Unlocked Per Region"
+    range_start = 0
+    range_end = 12
+    default = 3
+
 class RoyalAccess(Toggle):
     """Keep Royal Capital graces accessable after it becomes ashen."""
     display_name = "Royal Capital Accessable"
@@ -88,6 +100,11 @@ class RoyalAccess(Toggle):
 class EnableDLC(Toggle):
     """Enable DLC"""
     display_name = "Enable DLC"
+
+class DLCOnly(Toggle):
+    """Restrict the check pool to the Shadow of the Erdtree DLC only (base game kept for
+    traversal, but holds no checks). Forces Enable DLC on. Inverse of enable_dlc."""
+    display_name = "DLC Only"
     
 class MessmerKindle(Toggle): # another toggle to make them only spawn in dlc?
     """Messmer Kindle Shards"""
@@ -148,11 +165,13 @@ class CraftingKitOption(Choice):
     - **Randomize:** Can be anywhere.
     - **Early:** Make it anywhere before Altus and not in Caelid.
     - **Do Not Randomize:** Leave it at its normal spot.
+    - **Start With:** Granted at the start of the run (a copy also stays in the pool).
     """
     display_name = "Crafting Kit Behavior"
     option_randomize = 0
     option_early = 1
     option_do_not_randomize = 2
+    option_start_with = 3
     default = 1
     
 class MapOption(Choice):
@@ -372,6 +391,23 @@ class BlessingOption(Choice):
     default = 0
 
 
+class LocationPool(Choice):
+    """How many locations are randomized checks -- controls your footprint in a multiworld.
+
+    - **All:** every pickup (~3900). Big slice of the pool; lots of far-flung filler checks.
+    - **Trimmed:** drops low-value filler pickups (golden runes, consumables, materials,
+      cookbooks); keeps gear, upgrades, and all key/boss/important checks (~2150).
+    - **Lean:** only meaningful checks -- boss drops, key items, remembrances, flask upgrades
+      (seeds/tears), DLC blessings, plus anything holding a progression item (~500).
+      Recommended for multiworld syncs.
+    """
+    display_name = "Location Pool Size"
+    option_all = 0
+    option_trimmed = 1
+    option_lean = 2
+    default = 0
+
+
 @dataclass
 class EROptions(PerGameCommonOptions):
     ending_condition: EndingCondition
@@ -383,8 +419,10 @@ class EROptions(PerGameCommonOptions):
     great_runes_final_boss: GreatRunesFinalBoss
     great_runes_mountaintops: GreatRunesMountaintops
     deathless_routing: DeathlessRouting
+    graces_per_region: GracesPerRegion
     royal_access: RoyalAccess
     enable_dlc: EnableDLC
+    dlc_only: DLCOnly
     messmer_kindle: MessmerKindle
     messmer_kindle_required: MessmerKindleRequired
     messmer_kindle_max: MessmerKindleMax
@@ -417,6 +455,7 @@ class EROptions(PerGameCommonOptions):
     bell_physick_option: BellPhysickOption
     flask_upgrade_option: FlaskUpgradeOption
     blessing_option: BlessingOption
+    location_pool: LocationPool
 
 option_groups = [
     OptionGroup("World Logic", [
@@ -453,6 +492,7 @@ option_groups = [
         BellPhysickOption,
         FlaskUpgradeOption,
         BlessingOption,
+        LocationPool,
     ]),
     OptionGroup("Enemy Randomizer", [
         EnemyRando,

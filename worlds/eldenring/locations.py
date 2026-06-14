@@ -6274,6 +6274,52 @@ location_descriptions = {
     "Missable": "Locations that can be missed in vanilla.",
 }
 
+# --- Auto-generated readable descriptions for lean checks (#14) ----------------
+# Decodes the compact REGION/SUBAREA prefix into the precise region name (the
+# location_tables key), tags the check type, and keeps the original directional
+# hint. Additive only: keyed by the verbatim location name, so no logic refs
+# break. See docs/check-name-legend.md for the full prefix legend.
+_LEAN_DESC_TAGS = (
+    ("remembrance", "Remembrance — boss reward"),
+    ("boss", "Main boss reward"),
+    ("overworldboss", "Overworld boss reward"),
+    ("dragonboss", "Dragon boss reward"),
+    ("altboss", "Boss reward"),
+    ("miscboss", "Boss reward"),
+    ("catacombboss", "Minor-dungeon boss reward"),
+    ("graveboss", "Minor-dungeon boss reward"),
+    ("caveboss", "Minor-dungeon boss reward"),
+    ("tunnelboss", "Minor-dungeon boss reward"),
+    ("gaolboss", "Minor-dungeon boss reward"),
+    ("minidungeonboss", "Minor-dungeon boss reward"),
+    ("keyitem", "Key item"),
+    ("seedtree", "Golden Seed — flask charge upgrade"),
+    ("church", "Sacred Tear — flask potency upgrade"),
+    ("basin", "Flask of Wondrous Physick (basin)"),
+    ("fragment", "Scadutree / Revered Spirit fragment"),
+    ("revered", "Revered Spirit Ash fragment"),
+    ("cross", "Leda questline message"),
+)
+
+def _er_describe_lean_checks():
+    """Populate location_descriptions for every lean-tagged check (additive)."""
+    _tags = [t for t, _ in _LEAN_DESC_TAGS]
+    for _region_key, _table in location_tables.items():
+        for _ld in _table:
+            if not any(getattr(_ld, _t, False) for _t in _tags):
+                continue
+            _label = next((_lbl for _t, _lbl in _LEAN_DESC_TAGS
+                           if getattr(_ld, _t, False)), "Lean check")
+            _name = _ld.name
+            _hint = _name.split(" - ", 1)[1].strip() if " - " in _name else ""
+            _desc = "{}. {}.".format(_region_key, _label)
+            if _hint:
+                _desc += " " + _hint
+            location_descriptions.setdefault(_name, _desc)
+
+_er_describe_lean_checks()
+# --- end auto-generated lean descriptions --------------------------------------
+
 location_dictionary: Dict[str, ERLocationData] = {}
 for location_name, location_table in location_tables.items():
     location_dictionary.update({location_data.name: location_data for location_data in location_table})

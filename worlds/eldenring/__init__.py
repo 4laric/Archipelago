@@ -10,6 +10,7 @@ from worlds.generic.Rules import CollectionRule, ItemRule, add_rule, add_item_ru
 from .items import ERItem, ERItemData, ERItemCategory, filler_item_names, filler_item_names_vanilla, item_descriptions, item_table, item_table_vanilla, item_name_groups
 from .locations import ERLocation, ERLocationData, location_tables, location_descriptions, location_dictionary, location_name_groups, region_order, region_order_dlc
 from .options import EROptions, option_groups
+from .grace_data import REGION_LOCK_ITEM, REGION_GRACE_POINTS
 from Options import OptionError
 
 # Settings
@@ -67,6 +68,11 @@ class EldenRing(World):
 
     def generate_early(self) -> None:
         self.created_regions = set()
+        # dlc_only forces enable_dlc on: the DLC regions/maps/Enir-Ilim gate are all
+        # gated on enable_dlc, and dlc_only must never run with DLC off.
+        if self.options.dlc_only and not self.options.enable_dlc:
+            self.options.enable_dlc.value = 1
+            warning(f"{self.player_name}: dlc_only is set; forcing enable_dlc on.")
         self.all_excluded_locations.update(self.options.exclude_locations.value)
         # self.all_priority_locations.update(self.options.priority_locations.value)
 
@@ -610,6 +616,8 @@ class EldenRing(World):
             self._fill_local_item("Crafting Kit", ["Limgrave", "Siofra River", "Weeping Peninsula", "Liurnia of The Lakes"])
         elif self.options.crafting_kit_option.value == 2:
             self.multiworld.get_location("LG/(CE): Crafting Kit - Kalé Shop", self.player).place_locked_item(self.create_item("Crafting Kit"))
+        elif self.options.crafting_kit_option.value == 3:  # start with (copy also left in pool, like maps/bell)
+            self.multiworld.push_precollected(self.create_item("Crafting Kit"))
             
         if self.options.smithing_bell_bearing_option.value == 2:
             self.multiworld.get_location("LL/(RLCT): Smithing-Stone Miner's Bell Bearing [1] - boss drop", self.player).place_locked_item(self.create_item("Smithing-Stone Miner's Bell Bearing [1]"))
@@ -622,11 +630,11 @@ class EldenRing(World):
             self.multiworld.get_location("FA/TFB: Somberstone Miner's Bell Bearing [4] - to N", self.player).place_locked_item(self.create_item("Somberstone Miner's Bell Bearing [4]"))
             self.multiworld.get_location("FA/DTR: Somberstone Miner's Bell Bearing [5] - to SE, W of courtyard, in water room by altar", self.player).place_locked_item(self.create_item("Somberstone Miner's Bell Bearing [5]"))
         
-        using_table = item_table_vanilla
-        if self.options.enable_dlc: using_table = item_table
-        for item in using_table.values(): # loop of whole item table
-            if self.options.map_option.value == 1 and item.map: # add all maps to start inv
-                self.multiworld.push_precollected(self.create_item(item.name))
+        # map_option=give: we no longer precollect the map fragment ITEMS (that cluttered the bag
+        # with ~19 fragments, and granting each set its reveal flag). Instead slot_data
+        # "reveal_all_maps" (below) tells the client to set every region's map-reveal flag
+        # directly. Map-pillar locations are already excluded as checks under give, so the map
+        # items aren't in the pool either -- nothing to precollect. (beta.3 contract; TODO #5.)
 
         # Spirit Calling Bell + Flask of Wondrous Physick are inert without their
         # companion items (Spirit Ashes / Crystal Tears), so optionally hand them over
@@ -785,6 +793,14 @@ class EldenRing(World):
                 self._add_entrance_rule("Caelid", lambda state: self._can_go_to(state, "Altus Plateau"))
                 self.multiworld.register_indirect_condition(self.get_region("Altus Plateau"), self.get_entrance("Go To Caelid"))
                 self._add_entrance_rule("Consecrated Snowfield", "Rold Medallion")
+                # Soft-order (#13): keep the early Varré/Pureblood-medal rush to Mohgwyn
+                # out of sphere 1. Mohgwyn is reachable from Limgrave via the sending gate,
+                # so a sphere-1 Mohgwyn Lock + medal could open a tier-5 region immediately.
+                # Item check only (no _can_go_to chaining, which recurses — see deathless note);
+                # mirrors the region_boss "Liurnia Bosses" gate. Cannot deadlock: nothing on the
+                # path to Liurnia needs Mohgwyn, and the DLC entry (Mohgwyn→Gravesite) is meant
+                # to be mid-game.
+                self._add_entrance_rule("Mohgwyn Palace", "Liurnia Lock")
            
             # "BS: Stonesword Key - behind wooden platform" # in limgrave rn
             # "BS: Smithing Stone [1] x3 - corpse hanging off edge" # on Bridge of Sacrifice idk where wall for WP will be
@@ -879,11 +895,14 @@ class EldenRing(World):
                                 lambda state: state.has("Drawing-Room Key", self.player)
                                 or self._can_go_to(state, "Volcano Manor Dungeon")) 
         if self.options.deathless_routing:
-            # Deathless: exclude the Raya Lucaria abduction (a death-based shortcut) from
-            # logic; the Manor complex must be reached legitimately (Drawing-Room Key via
-            # Mt. Gelmir, then down into the dungeon).
+            # Deathless: exclude the Raya Lucaria abduction (a death-based shortcut) from logic;
+            # the Manor complex must be entered legitimately with the Drawing-Room Key (obtainable
+            # via Mt. Gelmir -> Volcano Manor Entrance, no manor gate). Gate directly on the key
+            # rather than on _can_go_to("Volcano Manor"): Volcano Manor's own rule references
+            # VM Dungeon, and _can_go_to evaluates rules without memoization, so a cross-region
+            # call here recurses forever when the key is absent.
             self._add_entrance_rule("Volcano Manor Dungeon",
-                                    lambda state: self._can_go_to(state, "Volcano Manor"))
+                                    lambda state: state.has("Drawing-Room Key", self.player))
         else:
             self._add_entrance_rule("Volcano Manor Dungeon",
                                     lambda state: self._can_go_to(state, "Raya Lucaria Academy Main")
@@ -2455,6 +2474,16 @@ class EldenRing(World):
         if self.options.excluded_location_behavior == "allow_useful":
             self.options.exclude_locations.value.clear()
             
+    def _content_in_scope(self, data) -> bool:
+        """Whether a location's content belongs in the check pool.
+
+        dlc_only inverts the normal rule: keep ONLY dlc-flagged locations (base game is
+        kept for traversal but holds no checks). Otherwise: base always, DLC iff enable_dlc.
+        """
+        if self.options.dlc_only:
+            return bool(data.dlc)
+        return (not data.dlc) or bool(self.options.enable_dlc)
+
     def _add_location_rule(self, location: Union[str, List[str]], rule: Union[CollectionRule, str]) -> None:
         """Sets a rule for the given location if it that location is randomized.
 
@@ -2463,7 +2492,7 @@ class EldenRing(World):
         locations = location if isinstance(location, list) else [location]
         for location in locations:
             data = location_dictionary[location]
-            if data.dlc and not self.options.enable_dlc: continue
+            if not self._content_in_scope(data): continue
 
             if not self._is_location_available(location): continue
             if isinstance(rule, str):
@@ -2508,7 +2537,7 @@ class EldenRing(World):
 
         return (
             not data.is_event
-            and (not data.dlc or bool(self.options.enable_dlc))
+            and self._content_in_scope(data)
             and not (
                 self.options.excluded_location_behavior == "do_not_randomize"
                 and data.name in self.all_excluded_locations
@@ -2517,7 +2546,33 @@ class EldenRing(World):
                 self.options.missable_location_behavior == "do_not_randomize"
                 and data.missable
             )
+            # map_option=give: map-pillar pickups aren't checks. Their guarding flag IS the
+            # map reveal flag, which giving the map sets at spawn -- if they were checks they'd
+            # auto-fire and dump their (randomized) item for free. Maps are still precollected.
+            and not (
+                self.options.map_option.value == 1
+                and data.map
+            )
+            and self._in_location_pool(data)
         )
+
+    def _in_location_pool(self, data: ERLocationData) -> bool:
+        """location_pool option: trim the randomized-check set (all / trimmed / lean)."""
+        pool = self.options.location_pool.value
+        if pool == 0:
+            return True
+        item = item_table.get(data.default_item_name)
+        cls = item.classification if item else None
+        if pool == 1:  # trimmed: drop low-value filler-item locations
+            return cls != ItemClassification.filler
+        # pool == 2 (lean): only meaningful checks (+ anything holding a progression item)
+        _lean = ("boss", "altboss", "catacombboss", "graveboss", "caveboss", "tunnelboss",
+                 "gaolboss", "minidungeonboss", "miscboss", "overworldboss", "dragonboss",
+                 "remembrance", "keyitem", "seedtree", "church", "basin", "fragment",
+                 "revered", "cross")
+        if any(getattr(data, t, False) for t in _lean):
+            return True
+        return cls == ItemClassification.progression
     
     def write_spoiler(self, spoiler_handle: TextIO) -> None:
         text = ""
@@ -2685,6 +2740,41 @@ class EldenRing(World):
                     trigger = next((l for l in rem_locs if l.data.prominent), rem_locs[0])
                     add_sweep(trigger, locs)
 
+        # DLC footgun guard: the v0.8 swap/rune enemy toggles crash the bake against DLC
+        # enemies (untested combo, EnemyRandomizer.cs:8202). Force them off when DLC is on so
+        # a seed can't brick the bake; warn if the player had set them. See TODO #1.
+        if self.options.enable_dlc and (self.options.swap_multiboss or self.options.boss_runes_match):
+            warning(f"{self.player_name}: swap_multiboss/boss_runes_match are not DLC-safe yet; "
+                    f"suppressing them because enable_dlc is on (avoids the enemy-rando bake crash).")
+        # Region-fusion grace bundle (TODO #13): when region gating is active, ship
+        # {lock_item_name: [grace warp-unlock flags]} so the runtime client can enable a
+        # region's Sites of Grace (fast travel) when its lock item is received. graces_per_region
+        # controls how many per region (0 = all); picks are spatially SPREAD (central hub first,
+        # then farthest-point for coverage) from grace_data.py. Inert until the client consumes
+        # it; only emitted for region-gating world_logic (< open_world).
+        region_graces: Dict[str, list] = {}
+        if self.options.world_logic < 3:
+            _n = self.options.graces_per_region.value
+            def _spread(points, k):
+                # points: [[flag, x, z], ...]; return up to k flags maximizing spatial spread
+                if k <= 0 or k >= len(points):
+                    return [p[0] for p in points]
+                cx = sum(p[1] for p in points) / len(points)
+                cz = sum(p[2] for p in points) / len(points)
+                chosen = [min(points, key=lambda p: (p[1]-cx)**2 + (p[2]-cz)**2)]
+                while len(chosen) < k:
+                    far = max(points, key=lambda p: min((p[1]-c[1])**2 + (p[2]-c[2])**2 for c in chosen))
+                    if far in chosen:
+                        break
+                    chosen.append(far)
+                return [p[0] for p in chosen]
+            for _region, _points in REGION_GRACE_POINTS.items():
+                _lock = REGION_LOCK_ITEM.get(_region)
+                if not _lock or not _points:
+                    continue
+                region_graces.setdefault(_lock, []).extend(_spread(_points, _n))
+            for _lock in region_graces:
+                region_graces[_lock] = sorted(set(region_graces[_lock]))
         slot_data = {
             "options": {
                 "ending_condition": self.options.ending_condition.value,
@@ -2698,6 +2788,7 @@ class EldenRing(World):
                 "deathless_routing": self.options.deathless_routing.value,
                 "royal_access": self.options.royal_access.value,
                 "enable_dlc": self.options.enable_dlc.value,
+                "dlc_only": self.options.dlc_only.value,
                 "messmer_kindle": self.options.messmer_kindle.value,
                 "messmer_kindle_required": self.options.messmer_kindle_required.value,
                 "messmer_kindle_max": self.options.messmer_kindle_max.value,
@@ -2727,8 +2818,8 @@ class EldenRing(World):
                 # Tier-A enemy-rando sub-toggles + Serpent-Hunter tweak. Shipped as REAL
                 # bools (not 0/1) so they survive the static randomizer's bool-only
                 # options filter, same as no_weapon_requirements above.
-                "swap_multiboss": bool(self.options.swap_multiboss.value),
-                "boss_runes_match": bool(self.options.boss_runes_match.value),
+                "swap_multiboss": bool(self.options.swap_multiboss.value) and not bool(self.options.enable_dlc.value),
+                "boss_runes_match": bool(self.options.boss_runes_match.value) and not bool(self.options.enable_dlc.value),
                 "impolite_enemies": bool(self.options.impolite_enemies.value),
                 "disable_serpent_hunter_upgrade": bool(self.options.disable_serpent_hunter_upgrade.value),
                 "bell_physick_option": self.options.bell_physick_option.value,
@@ -2746,6 +2837,12 @@ class EldenRing(World):
             # Locations whose full completion = goal, for ending_condition 2/3 (empty
             # otherwise). Consumed by the runtime client only.
             "goalLocations": goal_locations,
+            # Region-fusion grace bundle: lock-item name -> grace warp flags to enable on
+            # receipt (region gating only; empty otherwise). Runtime client only. TODO #13.
+            "regionGraces": region_graces,
+            # Map reveal under map_option=give (beta.3): client sets every region map-reveal flag
+            # directly, no map fragment items granted. True only for give; False otherwise. TODO #5.
+            "reveal_all_maps": self.options.map_option.value == 1,
             # ER-stack ENCODING / slot_data contract version range (what decisions A–E
             # define), NOT any binary's release number. Enforced by BOTH the static
             # randomizer at bake AND the runtime client at connect, each checking its
@@ -2754,7 +2851,8 @@ class EldenRing(World):
             # apworld + randomizer + client. Graduate to ">=0.1.0 <0.2.0" once A–E freeze.
             # beta.2: apIdsToItemIds values are now category-packed (top nibble: weapon=0,
             # armor=1, accessory=2, goods=4, ash-of-war=8) instead of raw er_codes.
-            "versions": ">=0.1.0-beta.2 <0.1.0-beta.3",
+            # beta.3: + reveal_all_maps (map_option=give reveals via flags, no map items granted).
+            "versions": ">=0.1.0-beta.3 <0.1.0-beta.4",
         }
 
         return slot_data
