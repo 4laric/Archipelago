@@ -1,6 +1,9 @@
 .idea
 .vscode
 
+# ER apworld generate_early startup diagnostic (rewritten every gen; not source)
+ER_DIAG.txt
+
 *_Spoiler.txt
 *.bmbp
 *.apbp

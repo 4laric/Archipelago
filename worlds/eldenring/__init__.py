@@ -9,6 +9,7 @@ from worlds.generic.Rules import CollectionRule, ItemRule, add_rule, add_item_ru
 
 from .items import ERItem, ERItemData, ERItemCategory, filler_item_names, filler_item_names_vanilla, item_descriptions, item_table, item_table_vanilla, item_name_groups
 from .locations import ERLocation, ERLocationData, location_tables, location_descriptions, location_dictionary, location_name_groups, region_order, region_order_dlc
+from .merchant_bells import merchant_bell_names, resolve_merchant_bells
 from .options import EROptions, option_groups
 from .grace_data import REGION_LOCK_ITEM, REGION_GRACE_POINTS
 from Options import OptionError
@@ -68,11 +69,35 @@ class EldenRing(World):
 
     def generate_early(self) -> None:
         self.created_regions = set()
+        import logging as _lg, os as _os
+        _diag = ("ER-FUNDEMOTE-DIAG enter generate_early: accessibility.value=%r "
+                 "option_minimal=%r gate=%r enable_dlc=%r location_pool=%r" % (
+                 self.options.accessibility.value, self.options.accessibility.option_minimal,
+                 self.options.accessibility.value == self.options.accessibility.option_minimal,
+                 bool(self.options.enable_dlc), self.options.location_pool.value))
+        _lg.error(_diag)
+        try:
+            with open(_os.path.join(_os.path.dirname(__file__), "ER_DIAG.txt"), "w") as _df:
+                _df.write(_diag + "\n")
+        except Exception:
+            pass
         # dlc_only forces enable_dlc on: the DLC regions/maps/Enir-Ilim gate are all
         # gated on enable_dlc, and dlc_only must never run with DLC off.
         if self.options.dlc_only and not self.options.enable_dlc:
             self.options.enable_dlc.value = 1
             warning(f"{self.player_name}: dlc_only is set; forcing enable_dlc on.")
+        # dlc_only also forces two settings the mode needs to generate (previously set by
+        # hand in the yaml): accessibility=minimal -- base regions are kept as locked-vanilla
+        # transit so "full" would demand every base location be individually reachable -- and
+        # important_locations=[] -- the DLC-only priority-fill phase has too few in-scope
+        # priority locations to satisfy a non-empty priority set.
+        if self.options.dlc_only:
+            if self.options.accessibility.value != self.options.accessibility.option_minimal:
+                self.options.accessibility.value = self.options.accessibility.option_minimal
+                warning(f"{self.player_name}: dlc_only is set; forcing accessibility to minimal.")
+            if self.options.important_locations.value:
+                self.options.important_locations.value = []
+                warning(f"{self.player_name}: dlc_only is set; clearing important_locations.")
         self.all_excluded_locations.update(self.options.exclude_locations.value)
         # self.all_priority_locations.update(self.options.priority_locations.value)
 
@@ -139,11 +164,48 @@ class EldenRing(World):
             item_table["Somberstone Miner's Bell Bearing [3]"].classification = ItemClassification.progression
             item_table["Somberstone Miner's Bell Bearing [4]"].classification = ItemClassification.progression
             item_table["Somberstone Miner's Bell Bearing [5]"].classification = ItemClassification.progression
+
+        # Merchant bell-bearing logic (logic-only): promote each gated merchant's Bell
+        # Bearing to an in-pool progression item so its shop checks can require it.
+        # NOTE mutates the module-level item_table (same pattern as the smithing block
+        # above). Only bells with a real world drop are listed (see merchant_bells.py).
+        if self.options.merchant_bell_logic.value == 1:
+            for _bell in merchant_bell_names(bool(self.options.enable_dlc)):
+                item_table[_bell].skip = False
+                item_table[_bell].classification = ItemClassification.progression
         
         if self.options.world_logic == "region_lock" or self.options.world_logic == "region_lock_bosses": # inject keys
             for item in item_table: 
                 if item_table[item].lock:
                     item_table[item].inject = True
+            # dlc_only: free-entry model -- the goal (Enir Ilim Circlet) sits at the end of the
+            # DLC region-lock chain, so the whole graph must be reachable. Deterministically
+            # grant EVERY region lock (don't leave it to the placement fallback, which only
+            # precollects locks it failed to place). The Messmer's Kindling gate on Enir Ilim
+            # stays the real spine (its shards are still distributed in the DLC pool).
+            if self.options.dlc_only:
+                for item in item_table:
+                    if item_table[item].lock:
+                        item_table[item].inject = False
+                        self.multiworld.push_precollected(self.create_item(item))
+                # dlc_only: a DLC-only player has already cleared the base game, so DLC
+                # content that gates on BASE progression items would otherwise be
+                # permanently unreachable -- those items are not in the DLC-only pool.
+                # Precollect the base prerequisites: great runes (Enia Roundtable
+                # remembrance trades via _has_enough_great_runes), the Crafting Kit
+                # (furnace-golem pot crafting), and Dragon Hearts (Jagged Peak Grand
+                # Dragon Communion needs 23 via _has_enough_hearts).
+                _dlc_only_base_prereqs = [
+                    "Godrick's Great Rune", "Rykard's Great Rune", "Radahn's Great Rune",
+                    "Morgott's Great Rune", "Mohg's Great Rune", "Malenia's Great Rune",
+                    "Great Rune of the Unborn",
+                    "Crafting Kit",
+                ]
+                for _pre in _dlc_only_base_prereqs:
+                    self.multiworld.push_precollected(self.create_item(_pre))
+                # 5x "Dragon Heart x5" = 25 hearts (>= the 23 the Communion requires).
+                for _ in range(5):
+                    self.multiworld.push_precollected(self.create_item("Dragon Heart x5"))
         
         if self.options.enable_dlc:
             # warming stone craft
@@ -178,6 +240,44 @@ class EldenRing(World):
                                 if item_table.get(n) is None or item_table[n].filler]
         filler_item_names_vanilla[:] = [n for n in filler_item_names_vanilla
                                 if item_table_vanilla.get(n) is None or item_table_vanilla[n].filler]
+
+        # "Fun" consumables (Stonesword Key, Deathroot, Dragon Heart, Starlight Shards,
+        # Festering Bloody Finger) are classified progression so they spread
+        # meaningfully, but NONE are required to beat the game: they gate optional side content
+        # (imp-statue seals, Gurranq's Deathroot rewards, the Caelid Dragon Communion shop, the
+        # Seluvis puppets). Under a constrained pool (region_lock + trimmed + DLC-off) that glut
+        # of progression has nowhere reachable to land -> priority/progression fill FillError.
+        # Demote them to "useful": still real, fun checks, but out of the progression/priority
+        # fill. UNCONDITIONAL (Alaric's call: these aren't really progression in any config). The
+        # _add_location_rule / _add_entrance_rule asserts are relaxed for them (self._fun_demoted).
+        # CAVEAT: under accessibility==full the side-locations they gate must stay reachable -- a
+        # starved full pool could fail there, but such configs are already non-viable; minimal is
+        # the norm for the constrained pools this targets.
+        if True:  # (was gated on accessibility==minimal; now always demote)
+            # None are goal-required; all gate only optional side content. Festering Bloody
+            # Finger gates nothing in apworld logic (DLC access is Pureblood Knight's Medal --
+            # made progression at ~:193 -- not this), so demote it regardless of enable_dlc.
+            _fun_prefixes = ["Stonesword Key", "Deathroot", "Dragon Heart", "Starlight Shards",
+                             "Festering Bloody Finger", "Seedbed Curse", "Shabriri Grape"]
+            # (Seedbed Curse = Dung Eater quest; Shabriri Grape = Frenzied Flame ending -- both
+            #  optional for the Elden Beast goal. If goal were frenzied_flame, Shabriri Grape would
+            #  matter; revisit the prefix list if a Frenzied-ending goal is ever used.)
+            _demoted = 0
+            self._fun_demoted = getattr(self, "_fun_demoted", set())
+            for _tbl in (item_table, item_table_vanilla):
+                for _data in _tbl.values():
+                    if (_data.classification == ItemClassification.progression
+                            and any(_data.name.startswith(_p) for _p in _fun_prefixes)):
+                        _data.classification = ItemClassification.useful
+                        _data.filler = False
+                        self._fun_demoted.add(_data.name)
+                        _demoted += 1
+            _lg.error("ER-FUNDEMOTE-DIAG demoted %d fun-consumable items to useful", _demoted)
+            try:
+                with open(_os.path.join(_os.path.dirname(__file__), "ER_DIAG.txt"), "a") as _df:
+                    _df.write("demoted %d fun-consumable items to useful\n" % _demoted)
+            except Exception:
+                pass
 
         exclude_local_item_only_lowercase = [key.lower() for key in self.options.exclude_local_item_only.value]
         using_table = item_table_vanilla
@@ -458,6 +558,27 @@ class EldenRing(World):
             create_connection("Recluses' River", "Darklight Catacombs")
             create_connection("Darklight Catacombs", "Abyssal Woods")
             create_connection("Abyssal Woods", "Midra's Manse")
+
+            # dlc_only: the normal DLC entry (base -> Mohgwyn -> Gravesite Plain) requires
+            # base boss-drop CHECKS (Mohg/Radahn remembrances) and the Pureblood Knight's
+            # Medal -- none of which exist in a DLC-only pool, which would wall off the whole
+            # Land of Shadow. Add a free logical entry straight to Gravesite Plain. Base
+            # regions stay in the graph for in-game transit but no longer gate progression;
+            # Enir Ilim is still gated by Messmer's Kindling Shard(s) as the real spine.
+            if self.options.dlc_only:
+                dlc_entry = Entrance(self.player, "DLC Only Entry", regions["Menu"])
+                regions["Menu"].exits.append(dlc_entry)
+                dlc_entry.connect(regions["Gravesite Plain"])
+                # Base regions are kept only as locked-vanilla transit (no checks in dlc_only),
+                # but base traversal stalls mid-graph (e.g. Altus needs the Dectus halves, one in
+                # unreachable Caelid), and AP's accessibility sweep treats every locked event
+                # location as required -- so the ~2200 base locations fail the check. Give every
+                # base region a free Menu entrance so the whole base map is reachable transit.
+                # Base items are not in the pool, so this adds no progression and no fill effect.
+                for _base_rn in region_order:
+                    _bt = Entrance(self.player, f"DLC Only Base Transit: {_base_rn}", regions["Menu"])
+                    regions["Menu"].exits.append(_bt)
+                    _bt.connect(regions[_base_rn])
     
     # For each region, add the associated locations retrieved from the corresponding location_table
     def create_region(self, region_name, location_table) -> Region:
@@ -511,6 +632,12 @@ class EldenRing(World):
                     event = True,
                 )
                 event_item.code = None
+                # dlc_only: base locations are kept only as locked-vanilla transit; downgrade
+                # their locked items to filler so AP's accessibility sweep doesn't treat these
+                # (unreachable) base progression items as required. DLC events keep their real
+                # classification, so the DLC graph + PCR goal still gate beatability normally.
+                if self.options.dlc_only and not location.dlc:
+                    event_item.classification = ItemClassification.filler
                 new_location.place_locked_item(event_item)
                 if location.name in excluded:
                     excluded.remove(location.name)
@@ -528,6 +655,10 @@ class EldenRing(World):
         # Gather all default items on randomized locations
         self.local_itempool = []
         num_required_extra_items = 0
+        # Small Golden Runes are deferred during this scan; some may be dropped to
+        # free injectable slots on demand (see below). Eligible in every seed, but
+        # only actually skipped when there's a shortfall of room for injectables.
+        deferred_small_runes: List[str] = []
         for location in cast(List[ERLocation], self.multiworld.get_unfilled_locations(self.player)):
             if not self._is_location_available(location.name):
                 raise Exception("ER generation bug: Added an unavailable location.")
@@ -536,8 +667,27 @@ class EldenRing(World):
             item = item_table[default_item_name]
             if item.skip:
                 num_required_extra_items += 1
+            elif self._small_golden_rune_tier(default_item_name):
+                # Small Golden Rune ([1]-[5]): defer. It may be dropped from the
+                # pool to free a slot for injectable progression (decided below).
+                deferred_small_runes.append(default_item_name)
             else:
                 self.local_itempool.append(self.create_item(default_item_name))
+
+        # Drop only as many small-rune slots as we need to place every mandatory
+        # injectable (region locks, etc.) in-world instead of spilling it into the
+        # starting inventory -- which would silently disable region-lock. Cheapest
+        # (lowest-tier) runes are sacrificed first; any not needed stay in the pool.
+        injectable_mandatory_count = sum(
+            1 for _inj in self._all_injectable_items()
+            if _inj.classification == ItemClassification.progression
+        )
+        _shortfall = max(0, injectable_mandatory_count - num_required_extra_items)
+        _num_runes_to_skip = min(_shortfall, len(deferred_small_runes))
+        deferred_small_runes.sort(key=self._small_golden_rune_tier)
+        num_required_extra_items += _num_runes_to_skip
+        for _rune_name in deferred_small_runes[_num_runes_to_skip:]:
+            self.local_itempool.append(self.create_item(_rune_name))
 
         injectables = self._create_injectable_items(num_required_extra_items)
         num_required_extra_items -= len(injectables)
@@ -552,6 +702,41 @@ class EldenRing(World):
         # Add items to itempool
         self.multiworld.itempool += self.local_itempool
 
+    @staticmethod
+    def _small_golden_rune_tier(name: str) -> int:
+        """Tier N for a small "Golden Rune [N]" (N in 1..5), else 0.
+
+        Small Golden Runes are low-value filler, so they're eligible to be dropped
+        from the item pool to make room for injectable progression. [6]+ give
+        substantial runes and are always kept. See create_items for how many are
+        actually dropped (only as many as needed -- not a blanket removal).
+        """
+        if not name.startswith("Golden Rune ["):
+            return 0
+        try:
+            tier = int(name[name.index("[") + 1:name.index("]")])
+        except ValueError:
+            return 0
+        return tier if 1 <= tier <= 5 else 0
+
+    def _all_injectable_items(self) -> "List[ERItemData]":
+        """The inject-flagged items eligible to be placed in-world.
+
+        Shared by create_items (to size how many small-rune slots to free) and
+        _create_injectable_items (to choose them), so the two can't drift apart.
+        """
+        items = [
+            item for item
+            in item_table.values()
+            if item.inject and (not item.is_dlc or self.options.enable_dlc)
+        ]
+        if self.options.enable_dlc:
+            if self.options.messmer_kindle:
+                items += [item_table["Messmer's Kindling Shard"] for i in range(self.options.messmer_kindle_max)]
+            else:
+                items += [item_table["Messmer's Kindling"]]
+        return items
+
     def _create_injectable_items(self, num_required_extra_items: int) -> List[ERItem]:
         """Returns a list of items to inject into the multiworld instead of skipped items.
 
@@ -559,18 +744,8 @@ class EldenRing(World):
         that are in missable locations by default, this adds them to the
         player's starting inventory.
         """
-        all_injectable_items = [
-            item for item
-            in item_table.values()
-            if item.inject and (not item.is_dlc or self.options.enable_dlc)
-        ]
-        
-        if self.options.enable_dlc:
-            if self.options.messmer_kindle:
-                all_injectable_items += [item_table["Messmer's Kindling Shard"] for i in range(self.options.messmer_kindle_max)]
-            else:
-                all_injectable_items += [item_table["Messmer's Kindling"]]
-        
+        all_injectable_items = self._all_injectable_items()
+
         injectable_mandatory = [
             item for item in all_injectable_items
             if item.classification == ItemClassification.progression
@@ -1449,6 +1624,13 @@ class EldenRing(World):
             self._add_location_rule([f"LG/(WR): {s_item} - {scroll}" for s_item in scroll_items], scroll)
         for (book, book_items) in books:
             self._add_location_rule([f"RH: {b_item} - {book}" for b_item in book_items], book)
+
+        # Merchant bell-bearing gate (opt-in): require the merchant's Bell Bearing to
+        # buy/check their wares. Resolved against the live shop-location table.
+        if self.options.merchant_bell_logic.value == 1:
+            for _bell, _locs in resolve_merchant_bells(
+                    location_dictionary, bool(self.options.enable_dlc)).items():
+                self._add_location_rule(_locs, _bell)
                 
     def _add_npc_rules(self) -> None: # MARK: NPC Rules
         """Adds rules for items accessible via NPC quests.
@@ -2496,7 +2678,9 @@ class EldenRing(World):
 
             if not self._is_location_available(location): continue
             if isinstance(rule, str):
-                assert item_table[rule].classification == ItemClassification.progression
+                assert (item_table[rule].classification == ItemClassification.progression
+                        or rule in getattr(self, "_fun_demoted", ())), \
+                    f"non-progression item '{rule}' used as a location-gate shorthand"
                 rule = lambda state, item=rule: state.has(item, self.player)
             add_rule(self.multiworld.get_location(location, self.player), rule)
     
@@ -2506,7 +2690,9 @@ class EldenRing(World):
         if region not in self.created_regions: return
         if isinstance(rule, str):
             if " -> " not in rule:
-                assert item_table[rule].classification == ItemClassification.progression
+                assert (item_table[rule].classification == ItemClassification.progression
+                        or rule in getattr(self, "_fun_demoted", ())), \
+                    f"non-progression item '{rule}' used as an entrance-gate shorthand"
             rule = lambda state, item=rule: state.has(item, self.player)
         add_rule(self.multiworld.get_entrance("Go To " + region, self.player), rule)
 
@@ -2564,7 +2750,29 @@ class EldenRing(World):
         item = item_table.get(data.default_item_name)
         cls = item.classification if item else None
         if pool == 1:  # trimmed: drop low-value filler-item locations
-            return cls != ItemClassification.filler
+            if cls != ItemClassification.filler:
+                return True
+            # Alaric curation: keep smithing stones + the two start fingers even though
+            # they are filler (fun early checks). See memory er-start-items-randomize-request.
+            name = data.default_item_name or ""
+            if "Smithing Stone" in name:
+                return True
+            if name in ("Tarnished's Furled Finger", "Finger Severer"):
+                return True
+            # Alaric: keep "graveyard" rune clusters (thematic early checks), not all runes;
+            # SKIP the low-count Golden Runes ([1]-[3]) -- keep [4]+ and the bigger rune types.
+            if "graveyard" in (data.name or "").lower():
+                if name.startswith("Golden Rune ["):
+                    try:
+                        _tier = int(name[name.index("[") + 1:name.index("]")])
+                    except ValueError:
+                        _tier = 0
+                    if _tier >= 4:
+                        return True
+                elif any(name.startswith(w) for w in
+                         ("Hero's Rune", "Rune Arc", "Numen's Rune", "Lord's Rune")):
+                    return True
+            return False
         # pool == 2 (lean): only meaningful checks (+ anything holding a progression item)
         _lean = ("boss", "altboss", "catacombboss", "graveboss", "caveboss", "tunnelboss",
                  "gaolboss", "minidungeonboss", "miscboss", "overworldboss", "dragonboss",
@@ -2775,6 +2983,17 @@ class EldenRing(World):
                 region_graces.setdefault(_lock, []).extend(_spread(_points, _n))
             for _lock in region_graces:
                 region_graces[_lock] = sorted(set(region_graces[_lock]))
+        # Region-open flags (physical region-lock enforcement; SPEC-region-fog-gates.md).
+        # ONE reserved event flag per lock item, set by the client UNCONDITIONALLY on receipt
+        # (independent of the grace bundle, which graces_per_region may thin out). Baked border
+        # fog gates gate on this flag. Allocated from the randomizer's free-flag zone
+        # (PermutationWriter minimumGoodFlag = 50_000_000); 69_000_000 is well clear of vanilla
+        # and of the item-lot relocation cluster near 50M. ~25 regions => 69_000_000..69_000_0xx.
+        region_open_flags: Dict[str, int] = {}
+        if self.options.world_logic < 3:
+            REGION_OPEN_FLAG_BASE = 69_000_000
+            for _i, _lock in enumerate(sorted(set(REGION_LOCK_ITEM.values()))):
+                region_open_flags[_lock] = REGION_OPEN_FLAG_BASE + _i
         slot_data = {
             "options": {
                 "ending_condition": self.options.ending_condition.value,
@@ -2802,6 +3021,7 @@ class EldenRing(World):
                 "crafting_kit_option": self.options.crafting_kit_option.value,
                 "map_option": self.options.map_option.value,
                 "smithing_bell_bearing_option": self.options.smithing_bell_bearing_option.value,
+                "merchant_bell_logic": self.options.merchant_bell_logic.value,
                 "spell_shop_spells_only": self.options.spell_shop_spells_only.value,
                 "early_legacy_dungeons": self.options.early_legacy_dungeons.value,
                 "local_item_option": self.options.local_item_option.value,
@@ -2840,6 +3060,10 @@ class EldenRing(World):
             # Region-fusion grace bundle: lock-item name -> grace warp flags to enable on
             # receipt (region gating only; empty otherwise). Runtime client only. TODO #13.
             "regionGraces": region_graces,
+            # Region-open flags (physical enforcement, SPEC-region-fog-gates.md): lock-item name
+            # -> one reserved event flag the client sets on receipt; baked border fog gates gate
+            # on it. Region gating only; empty otherwise.
+            "regionOpenFlags": region_open_flags,
             # Map reveal under map_option=give (beta.3): client sets every region map-reveal flag
             # directly, no map fragment items granted. True only for give; False otherwise. TODO #5.
             "reveal_all_maps": self.options.map_option.value == 1,
