@@ -1,2 +1,19 @@
 worlds/blasphemous/region_data.py linguist-generated=true
 worlds/yachtdice/YachtWeights.py linguist-generated=true
+
+# --- EOL normalization (added) ---
+* text=auto
+*.dcx binary
+*.bin binary
+*.dll binary
+*.exe binary
+*.pyd binary
+*.so  binary
+*.png binary
+*.dds binary
+*.ico binary
+*.zip binary
+*.apworld binary
+*.gif binary
+*.jpg binary
+*.ttf binary
