@@ -1,0 +1,6 @@
+name: I04P0001
+description: loadtest slot
+game: ChecksFinder
+ChecksFinder:
+  progression_balancing: 0
+  accessibility: minimal

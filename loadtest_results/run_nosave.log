@@ -1,0 +1,17 @@
+[runner] run_id=nosave
+[runner] checkout=C:\Users\alari\Documents\Archipelago
+[runner] game=ChecksFinder  version=0,6,6  spoiler=0  no_save=True  rungs=[100, 250]  max_slots=250
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\gen_yamls.py --count 250 --game ChecksFinder --prefix P --digits 4 --out C:\Users\alari\Documents\Archipelago\loadtest_players
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\Generate.py --player_files_path C:\Users\alari\Documents\Archipelago\loadtest_players --outputpath C:\Users\alari\Documents\Archipelago\loadtest_out --spoiler 0
+[runner] multidata=C:\Users\alari\Documents\Archipelago\loadtest_out\AP_92296480329359045140.zip
+[runner] === rung 100 slots on port 38281 ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\MultiServer.py C:\Users\alari\Documents\Archipelago\loadtest_out\AP_92296480329359045140.zip --port 38281 --host 0.0.0.0 --disable_save
+[runner] server launch pid=38124  sampling pid=37744  (resolved real listener)
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 100 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,6 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\loadtest_results\results_nosave_100.json --server-pid 37744
+[runner] === rung 250 slots on port 38281 ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\MultiServer.py C:\Users\alari\Documents\Archipelago\loadtest_out\AP_92296480329359045140.zip --port 38281 --host 0.0.0.0 --disable_save
+[runner] server launch pid=39300  sampling pid=26232  (resolved real listener)
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 250 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,6 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\loadtest_results\results_nosave_250.json --server-pid 26232
+[runner] === sweep comparison ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\sweep_compare.py C:\Users\alari\Documents\Archipelago\loadtest_results\results_nosave_100.json C:\Users\alari\Documents\Archipelago\loadtest_results\results_nosave_250.json
+[runner] done. results stamped run_id=nosave in C:\Users\alari\Documents\Archipelago\loadtest_results

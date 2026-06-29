@@ -1,0 +1,20 @@
+[gosweep] run_id=20260629_144447  go_bin=C:\Users\alari\Documents\Archipelago\archipelago-go/archipela-go  rungs=[100, 250, 500, 1000]
+[gosweep] === rung 100 on port 38281 ===
+[gosweep] $ C:\Users\alari\Documents\Archipelago\archipelago-go/archipela-go --host 0.0.0.0 --port 38281
+[gosweep] server pid=40800
+[gosweep] $ C:\Users\alari\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 100 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,1 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_100.json --server-pid 40800
+[gosweep] === rung 250 on port 38281 ===
+[gosweep] $ C:\Users\alari\Documents\Archipelago\archipelago-go/archipela-go --host 0.0.0.0 --port 38281
+[gosweep] server pid=4248
+[gosweep] $ C:\Users\alari\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 250 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,1 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_250.json --server-pid 4248
+[gosweep] === rung 500 on port 38281 ===
+[gosweep] $ C:\Users\alari\Documents\Archipelago\archipelago-go/archipela-go --host 0.0.0.0 --port 38281
+[gosweep] server pid=11708
+[gosweep] $ C:\Users\alari\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 500 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,1 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_500.json --server-pid 11708
+[gosweep] === rung 1000 on port 38281 ===
+[gosweep] $ C:\Users\alari\Documents\Archipelago\archipelago-go/archipela-go --host 0.0.0.0 --port 38281
+[gosweep] server pid=24316
+[gosweep] $ C:\Users\alari\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 1000 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,1 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_1000.json --server-pid 24316
+[gosweep] === sweep comparison (archipela-go) ===
+[gosweep] $ C:\Users\alari\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe C:\Users\alari\Documents\Archipelago\sweep_compare.py C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_100.json C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_250.json C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_500.json C:\Users\alari\Documents\Archipelago\go_results\results_20260629_144447_1000.json
+[gosweep] done. results in C:\Users\alari\Documents\Archipelago\go_results (run_id=20260629_144447). Compare these curves to the Python baseline in FINDINGS.md.

@@ -1,148 +1,93 @@
-# [Archipelago](https://archipelago.gg) ![Discord Shield](https://discordapp.com/api/guilds/731205301247803413/widget.png?style=shield) | [Install](https://github.com/ArchipelagoMW/Archipelago/releases)
+# AP single-room scaling harness
 
-Archipelago provides a generic framework for developing multiworld capability for game randomizers. In all cases,
-presently, Archipelago is also the randomizer itself.
+Find the breakpoint for **one large Archipelago room** (toward ~1000 slots) — the
+streamer community-sync case. This drives a real, unmodified `MultiServer.py` over
+the wire and measures the paths most likely to fail at scale. It does **not** test
+generation (separate fill/logic problem).
 
-Currently, the following games are supported:
+## Files
+- `ap_loadtest.py` — the harness (client swarm + measurement).
+- `gen_yamls.py` — emits N Clique YAMLs with deterministic slot names.
+- `mock_server.py` — fake server for self-testing the harness only (ignore for real runs).
 
-* The Legend of Zelda: A Link to the Past
-* Factorio
-* Subnautica
-* Risk of Rain 2
-* The Legend of Zelda: Ocarina of Time
-* Timespinner
-* Super Metroid
-* Secret of Evermore
-* Final Fantasy
-* VVVVVV
-* Raft
-* Super Mario 64
-* Meritous
-* Super Metroid/Link to the Past combo randomizer (SMZ3)
-* ChecksFinder
-* Hollow Knight
-* The Witness
-* Sonic Adventure 2: Battle
-* Starcraft 2
-* Donkey Kong Country 3
-* Dark Souls 3
-* Super Mario World
-* Pokémon Red and Blue
-* Hylics 2
-* Overcooked! 2
-* Zillion
-* Lufia II Ancient Cave
-* Blasphemous
-* Wargroove
-* Stardew Valley
-* The Legend of Zelda
-* The Messenger
-* Kingdom Hearts 2
-* The Legend of Zelda: Link's Awakening DX
-* Adventure
-* DLC Quest
-* Noita
-* Undertale
-* Bumper Stickers
-* Mega Man Battle Network 3: Blue Version
-* Muse Dash
-* DOOM 1993
-* Terraria
-* Lingo
-* Pokémon Emerald
-* DOOM II
-* Shivers
-* Heretic
-* Landstalker: The Treasures of King Nole
-* Final Fantasy Mystic Quest
-* TUNIC
-* Kirby's Dream Land 3
-* Celeste 64
-* Castlevania 64
-* A Short Hike
-* Yoshi's Island
-* Mario & Luigi: Superstar Saga
-* Bomb Rush Cyberfunk
-* Aquaria
-* Yu-Gi-Oh! Ultimate Masters: World Championship Tournament 2006
-* A Hat in Time
-* Old School Runescape
-* Kingdom Hearts 1
-* Mega Man 2
-* Yacht Dice
-* Faxanadu
-* Saving Princess
-* Castlevania: Circle of the Moon
-* Inscryption
-* Civilization VI
-* The Legend of Zelda: The Wind Waker
-* Jak and Daxter: The Precursor Legacy
-* Super Mario Land 2: 6 Golden Coins
-* shapez
-* Paint
-* Celeste (Open World)
-* Choo-Choo Charles
-* APQuest
-* Satisfactory
-* EarthBound
+## What it measures, and why
+| Metric | Path under test | The wall it reveals |
+|---|---|---|
+| `loop_health_probe_rtt_ms` | dedicated reserved slot pinging `Get`→`Retrieved` | single event-loop stalls, esp. periodic `save()` stop-the-world |
+| `routing_latency_ms` | check a location → `ReceivedItems` on the recipient (self or cross-slot) | item-routing latency under load, including cross-connection push |
+| `throughput` (checks vs items) + timeseries | sustained `LocationChecks` | server falling behind (lag grows = breakpoint) |
+| `fanout_latency_ms` | many `SetNotify` subscribers, few `Set` | datastorage `SetNotify` O(subscribers) fan-out |
+| `reconnect` time + `backlog_items` | drop a fraction, rejoin at once | reconnect-storm cost + full `ReceivedItems` backlog resend |
+| server CPU%/RSS (with `--server-pid`) | psutil sampling | CPU saturation, memory creep |
 
-For setup and instructions check out our [tutorials page](https://archipelago.gg/tutorial/).
-Downloads can be found at [Releases](https://github.com/ArchipelagoMW/Archipelago/releases), including compiled
-windows binaries.
+The harness owns every slot, so it correlates routing latency by `(source_slot,
+source_location)` — when slot A checks a location whose item routes to slot B, it
+pairs A's send-time with B's receive-time across the two connections. Works for self-
+and cross-slot routing on any multiworld. It reserves the **last** slot for the
+loop-health probe.
 
-## History
+## Run it for real
+1. Generate slots and multidata (in your Archipelago checkout):
+   ```
+   python gen_yamls.py --count 1000 --out ./loadtest_players
+   python Generate.py --player_files_path ./loadtest_players --outputpath ./loadtest_out
+   ```
+2. Host the resulting output with stock MultiServer, note the port (default 38281).
+   Grab its PID for resource sampling: `pgrep -f MultiServer`.
+3. Drive it:
+   ```
+   python ap_loadtest.py --host localhost --port 38281 \
+     --slots 1000 --check-rate 1 --soak-seconds 180 \
+     --tracker-fraction 0.3 --reconnect-fraction 0.25 \
+     --server-pid <PID> --out results.json
+   ```
+   `--version` must be protocol-compatible with your server (`major,minor,build`);
+   bump it if you get `ConnectionRefused: InvalidVersion`. For `archipelago.gg`-style
+   TLS hosting you'd need `wss://`; local self-hosted is plain `ws://` (what this uses).
 
-Archipelago is built upon a strong legacy of brilliant hobbyists. We want to honor that legacy by showing it here.
-The repositories which Archipelago is built upon, inspired by, or otherwise owes its gratitude to are:
+## Reading results — the breakpoint signals
+- **Probe RTT p95/p99 climbing with slot count** = the loop is saturating. A periodic
+  spike to ~save-duration = the synchronous save is your stall; everything else flat
+  but periodic blips means save cadence is the first thing to fix (async/incremental save).
+- **`items_recv` falling behind `checks_sent`** in the timeseries (growing gap) = the
+  server can't keep up with routing. That gap-vs-slots curve is your scaling ceiling.
+- **`fanout_latency` p99 exploding while soak metrics stay flat** = datastorage
+  `SetNotify` is the bottleneck, not item routing. Fix = relay/shard the notify path,
+  or debounce tracker writes. This is often the real killer with many trackers.
+- **`reconnect.time_to_connected` p95 and `backlog_items` large** = reconnect storms
+  are expensive; the full backlog resend is the cost. Fix = incremental resync.
+- **RSS climbing monotonically** over a long soak = memory creep worth chasing.
 
-* [bonta0's MultiWorld](https://github.com/Bonta0/ALttPEntranceRandomizer/tree/multiworld_31)
-* [AmazingAmpharos' Entrance Randomizer](https://github.com/AmazingAmpharos/ALttPEntranceRandomizer)
-* [VT Web Randomizer](https://github.com/sporchia/alttp_vt_randomizer)
-* [Dessyreqt's alttprandomizer](https://github.com/Dessyreqt/alttprandomizer)
-* [Zarby89's](https://github.com/Ijwu/Enemizer/commits?author=Zarby89)
-  and [sosuke3's](https://github.com/Ijwu/Enemizer/commits?author=sosuke3) contributions to Enemizer, which make up the
-  vast majority of Enemizer contributions.
+Sweep `--slots` (e.g. 100 / 250 / 500 / 1000) holding `--check-rate` fixed and plot
+each metric vs slot count. The knee in those curves is the number you take into the
+"ops-tuning vs. rewrite" decision.
 
-We recognize that there is a strong community of incredibly smart people that have come before us and helped pave the
-path. Just because one person's name may be in a repository title does not mean that only one person made that project
-happen. We can't hope to perfectly cover every single contribution that lead up to Archipelago, but we hope to honor
-them fairly.
+## Tuning the load shape
+- `--check-rate` — checks per client per second (aggregate = slots × rate).
+- `--tracker-fraction` / `--set-rate` / `--fanout-seconds` — datastorage stress.
+- `--reconnect-fraction` — size of the simulated reconnect storm.
 
-### Path to the Archipelago
+## Choosing the game (and why not 1000× Hollow Knight)
+- **Don't** lead with a heavy game like Hollow Knight at 1000 slots. That's the
+  *generation* bottleneck reintroduced — likely 30+ min and an OOM risk before you
+  get a multidata — and it couples "heavy game" with "many slots," so a bad number
+  won't tell you which caused it.
+- **For the sweep**, use a light game that still shuffles items cross-slot so the
+  routing-latency metric is real: `ChecksFinder` (no ROM, modest locations, genuine
+  item economy) is a good default. The harness measures cross-slot routing on any
+  multiworld, so you don't need a heavy game to exercise the push path.
+- **Optional realism anchor**: if you want true per-slot memory + heavy-routing cost,
+  generate ONE multidata with a heavy game at a *small* slot count (100–200), measure,
+  and combine with the connection-scaling curve from the light-game sweep. You almost
+  never need 1000× a heavy game.
 
-Archipelago was directly forked from bonta0's `multiworld_31` branch of ALttPEntranceRandomizer (this project has a
-long legacy of its own, please check it out linked above) on January 12, 2020. The repository was then named to
-_MultiWorld-Utilities_ to better encompass its intended function. As Archipelago matured, then known as
-"Berserker's MultiWorld" by some, we found it necessary to transform our repository into a root level repository
-(as opposed to a 'forked repo') and change the name (which came later) to better reflect our project.
-
-## Running Archipelago
-
-For most people, all you need to do is head over to
-the [releases page](https://github.com/ArchipelagoMW/Archipelago/releases), then download and run the appropriate
-installer, or AppImage for Linux-based systems.
-
-If you are a developer or are running on a platform with no compiled releases available, please see our doc on
-[running Archipelago from source](docs/running%20from%20source.md).
-
-## Related Repositories
-
-This project makes use of multiple other projects. We wouldn't be here without these other repositories and the
-contributions of their developers, past and present.
-
-* [z3randomizer](https://github.com/ArchipelagoMW/z3randomizer)
-* [Enemizer](https://github.com/Ijwu/Enemizer)
-* [Ocarina of Time Randomizer](https://github.com/TestRunnerSRL/OoT-Randomizer)
-
-## Contributing
-
-To contribute to Archipelago, including the WebHost, core program, or by adding a new game, see our
-[Contributing guidelines](/docs/contributing.md).
-
-## FAQ
-
-For Frequently asked questions, please see the website's [FAQ Page](https://archipelago.gg/faq/en/).
-
-## Code of Conduct
-
-Please refer to our [code of conduct](/docs/code_of_conduct.md).
+## Caveats
+- Clique self-routes its one item, so it won't exercise the cross-connection push
+  path even though the harness can measure it. Use a light game that routes items
+  across slots (e.g. ChecksFinder) if you want routing-latency numbers; see the
+  game-choice section above.
+- 1000 sockets from one box is fine (IO-bound), but if the harness host CPU-saturates
+  at very high check rates, split clients across machines so you measure the *server*,
+  not the load generator.
+- This measures stock AP. The same harness validates any protocol-compatible
+  reimplementation later — point it at the new server, rerun the sweep, compare curves.
