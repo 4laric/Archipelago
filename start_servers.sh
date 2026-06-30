@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # start_servers.sh — launch BOTH servers on the Hetzner box for the off-box head-to-head.
-# Python MultiServer (real save ON) and archipela-go run simultaneously on two ports;
+# Python MultiServer (real save ON) and peliarch run simultaneously on two ports;
 # the laptop driver hits them one at a time, so the idle one (~0 CPU) doesn't interfere.
 #
 #   bash ~/Archipelago/start_servers.sh [APDIR] [PY_PORT] [GO_PORT] [LOCS_PER_SLOT]
@@ -19,13 +19,13 @@ MD="$(ls -t loadtest_out/*.zip loadtest_out/*.archipelago 2>/dev/null | head -1 
 rm -f loadtest_out/*.apsave   # fresh room
 
 pkill -f "MultiServer.py" 2>/dev/null || true
-pkill -f "archipela-go"   2>/dev/null || true
+pkill -f "peliarch"   2>/dev/null || true
 sleep 1
 
 nohup python3 MultiServer.py "$MD" --host 0.0.0.0 --port "$PY_PORT" > py_server.log 2>&1 &
 echo "[start] python MultiServer pid $! on :$PY_PORT  (room $MD)"
-nohup ./archipelago-go/archipela-go --host 0.0.0.0 --port "$GO_PORT" --locs-per-slot "$LOCS" > go_server.log 2>&1 &
-echo "[start] archipela-go     pid $! on :$GO_PORT  (locs/slot $LOCS)"
+nohup ./archipelago-go/peliarch --host 0.0.0.0 --port "$GO_PORT" --locs-per-slot "$LOCS" > go_server.log 2>&1 &
+echo "[start] peliarch     pid $! on :$GO_PORT  (locs/slot $LOCS)"
 sleep 3
 
 echo

@@ -4,7 +4,7 @@ Goal: put the **server on a Hetzner box** and drive it from **your laptop**, so 
 thing between harness and server is the real network. That's the clean off-box measurement
 we kept saying we needed — and the first real step toward hosting on Hetzner.
 
-You'll run Python MultiServer and archipela-go on the box (both at once, on two ports), then
+You'll run Python MultiServer and peliarch on the box (both at once, on two ports), then
 drive each in turn from your laptop and read the side-by-side.
 
 ---
@@ -38,7 +38,7 @@ ssh root@203.0.113.10
 bash ~/Archipelago/hetzner_setup.sh
 ```
 
-This installs Python + Go, builds `archipela-go`, makes a venv with the server deps, and
+This installs Python + Go, builds `peliarch`, makes a venv with the server deps, and
 tells you whether it found a room in `loadtest_out/` (if not, it prints the generate
 command — run it once on the box).
 
@@ -49,7 +49,7 @@ sudo ufw allow OpenSSH && sudo ufw allow 38281 && sudo ufw allow 38291 && sudo u
 bash ~/Archipelago/start_servers.sh
 ```
 
-`start_servers.sh` launches MultiServer on **:38281** and archipela-go on **:38291** (Go's
+`start_servers.sh` launches MultiServer on **:38281** and peliarch on **:38291** (Go's
 `--locs-per-slot` defaulted to 25 to match the ChecksFinder room). They run at the same
 time; since you drive them one at a time, the idle one sits at ~0 CPU and doesn't interfere.
 
@@ -91,25 +91,25 @@ the side-by-side into `h2h_remote_results/`.
 
 ## 7. Teardown
 
-Stop servers (`pkill -f MultiServer; pkill -f archipela-go`) and, to stop billing, **delete
+Stop servers (`pkill -f MultiServer; pkill -f peliarch`) and, to stop billing, **delete
 the server** in the Hetzner console (or keep it — it's the start of your hosting box).
 
 ---
 
-## Next: "how high can archipela-go actually go?"
+## Next: "how high can peliarch actually go?"
 
 The head-to-head proves Go beats Python at 250. To find Go's *ceiling*, the catch is that
 **your single laptop becomes the bottleneck before Go does** — `ap_loadtest.py` is itself a
 single asyncio process, so one generator can't out-muscle a multi-core Go server. To push
 Go to its real limit you need to **out-number it with generators**:
 
-- **Server:** one beefy box (CX42/CX52, or a dedicated CPU plan) running only archipela-go.
+- **Server:** one beefy box (CX42/CX52, or a dedicated CPU plan) running only peliarch.
 - **Generators:** several cheap boxes (or several processes), each running `ap_loadtest.py`
   against the **same** Go port with a **disjoint slot range**, so together they simulate
   4k / 8k / 16k connections the server can't tell apart.
 - **Ramp:** push slots and `--check-rate` up rung by rung; watch the box's `sample_server.py`
   CPU. Go can exceed 100% (multi-core) — the ceiling is when it pegs **all** cores or latency
-  finally climbs. That number is archipela-go's real capacity per box, and it sets your
+  finally climbs. That number is peliarch's real capacity per box, and it sets your
   per-room pricing for the Large tier.
 
 This is the `OFFBOX_RUN.md` idea taken to its conclusion, generators-first. The tooling to

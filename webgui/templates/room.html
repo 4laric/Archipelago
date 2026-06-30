@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block title %}{{ room.name }} — Peliarch{% endblock %}
+
+{% block content %}
+<!-- ============================================================
+  Room Page: /room/<id>
+  THE MOST IMPORTANT THING HERE: the wss://host:PORT connect address.
+  The web URL (/room/<id>) is for the management UI only.
+  The GAME address is connect.wss — a bare WebSocket port.
+  Never conflate these two.
+============================================================ -->
+
+<!-- Breadcrumb -->
+<div style="font-size:0.8rem; color:#475569; margin-bottom:1rem;">
+  <a href="/" style="color:#7c6af7;">Dashboard</a>
+  &nbsp;/&nbsp;
+  <span style="color:#64748b;">{{ room.name }}</span>
+</div>
+
+<div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.5rem; flex-wrap:wrap;">
+  <h1>{{ room.name }}</h1>
+  <span id="status-pill" class="pill pill-{{ room.status.lower() }}">{{ room.status }}</span>
+  {% if room.password %}
+    <span title="Password protected" style="color:#64748b; font-size:0.85rem;">🔒 Password set</span>
+  {% endif %}
+  {% if room.tier == 'Large' %}
+    <span class="pill" style="background:#1e3a5f; color:#7dd3fc;"
+          title="Served by the peliarch Go backend (1,000+ slots)">⚡ Large · peliarch</span>
+  {% else %}
+    <span class="pill" style="background:#2d3148; color:#94a3b8;"
+          title="Served by stock MultiServer">{{ room.tier }} · MultiServer</span>
+  {% endif %}
+</div>
+
+<p class="page-sub">
+  Room ID: <code>{{ room.id }}</code>
+  &nbsp;·&nbsp; Created {{ room.created_at|int }} (unix)
+  &nbsp;·&nbsp; Idle timeout: {{ (room.idle_timeout // 60) }} min
+</p>
+
+{% if room.status == 'HIBERNATED' %}
+<div class="sleeping-note">
+  💤 <strong>Sleeping</strong> — this room has been hibernated due to inactivity.
+  Connecting your AP client will wake it in a few seconds.
+</div>
+{% elif room.status == 'CRASHED' %}
+<div class="sleeping-note" style="background:#450a0a; color:#f87171;">
+  ⚠ <strong>Crashed</strong> — the room process stopped unexpectedly
+  ({{ room.crash_count }} restart{{ 's' if room.crash_count != 1 else '' }}).
+  Use the Start button to try again.
+</div>
+{% endif %}
+
+<!-- ============================================================
+  CONNECT BLOCK (the most important element on this page)
+============================================================ -->
+<div class="connect-block">
+  <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em;
+              color:#64748b; margin-bottom:0.4rem; font-weight:700;">
+    Game Connection Address
+  </div>
+
+  {% if connect.wss %}
+    <div class="wss-addr" id="wss-addr">{{ connect.wss }}</div>
+    <div class="copy-row">
+      <button class="copy-btn" onclick="copyText('{{ connect.wss }}', this)">Copy wss:// address</button>
+      <button class="copy-btn" onclick="copyText('{{ connect.host }}', this)">Copy host</button>
+      <button class="copy-btn" onclick="copyText('{{ connect.port }}', this)">Copy port</button>
+    </div>
+    <div class="field-pair">
+      <div class="field">
+        <label>Host</label>
+        <div class="val">{{ connect.host }}</div>
+      </div>
+      <div class="field">
+        <label>Port</label>
+        <div class="val" style="color:#7dd3fc;">{{ connect.port }}</div>
+      </div>
+      <div class="field">
+        <label>WebSocket URL (ws://)</label>
+        <div class="val" style="color:#94a3b8; font-size:0.82rem;">{{ connect.ws }}</div>
+      </div>
+    </div>
+  {% else %}
+    <div style="color:#475569; font-size:0.9rem; padding:0.5rem 0;">
+      No port assigned yet — start the room to get a connect address.
+    </div>
+  {% endif %}
+
+  <!-- Expander: how to connect -->
+  <details style="margin-top:1rem;">
+    <summary style="cursor:pointer; font-size:0.82rem; color:#64748b; user-select:none;">
+      Connecting? Here's how →
+    </summary>
+    <div style="margin-top:0.75rem; color:#94a3b8; font-size:0.83rem; line-height:1.7;">
+      <strong style="color:#e2e8f0;">Desktop AP client</strong><br>
+      In the Archipelago launcher, go to <em>Connect</em> and enter the
+      <strong>host</strong> and <strong>port</strong> shown above separately.
+      <br><br>
+      <strong style="color:#e2e8f0;">Browser / Text client</strong><br>
+      Connect to <code style="color:#a78bfa;">{{ connect.wss or 'wss://host:PORT' }}</code>
+      {% if room.password %}
+        with password <code>••••</code> (set by room owner).
+      {% else %}
+        — no password required.
+      {% endif %}
+      <br><br>
+      <strong style="color:#e2e8f0;">Note on sleeping rooms</strong><br>
+      If the status shows <em>Sleeping</em>, just connect — the room wakes automatically
+      within a few seconds.
+    </div>
+  </details>
+</div>
+
+<!-- ============================================================
+  Owner controls
+============================================================ -->
+<div class="card">
+  <h2 style="margin-bottom:1rem;">Room Controls</h2>
+  <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+
+    <form method="POST" action="/room/{{ room.id }}/start" style="display:inline;">
+      <button type="submit" class="btn btn-primary btn-sm"
+              {% if room.status == 'RUNNING' %}disabled style="opacity:0.4; cursor:default;"{% endif %}>
+        ▶ Start
+      </button>
+    </form>
+
+    <form method="POST" action="/room/{{ room.id }}/stop" style="display:inline;">
+      <button type="submit" class="btn btn-neutral btn-sm"
+              {% if room.status not in ('RUNNING','STARTING') %}disabled style="opacity:0.4; cursor:default;"{% endif %}>
+        ⏹ Stop
+      </button>
+    </form>
+
+    <!-- Password form -->
+    <form method="POST" action="/room/{{ room.id }}/password" id="pw-form"
+          style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="password" name="password" placeholder="New password (blank = clear)"
+             style="width:180px; padding:0.3rem 0.5rem; font-size:0.8rem;">
+      <button type="submit" class="btn btn-neutral btn-sm">Set password</button>
+    </form>
+
+    <!-- Delete (far right, dangerous) -->
+    <form method="POST" action="/room/{{ room.id }}/delete-confirm" style="display:inline; margin-left:auto;">
+      <button type="button" class="btn btn-danger btn-sm"
+              onclick="if(confirm('Delete room {{ room.name }}? This is permanent.')) {
+                fetch('/room/{{ room.id }}', {method:'DELETE'}).then(function(r){
+                  if(r.ok) window.location.href='/';
+                  else alert('Delete failed');
+                });
+              }">
+        🗑 Delete
+      </button>
+    </form>
+  </div>
+
+  <div style="margin-top:0.75rem; font-size:0.78rem; color:#475569;">
+    Crash restarts: <strong style="color:#94a3b8;">{{ room.crash_count }}</strong>
+    &nbsp;·&nbsp;
+    Multidata: <code style="font-size:0.75rem;">{{ room.multidata_path | replace('\\', '/') }}</code>
+  </div>
+</div>
+
+<!-- ============================================================
+  Status / health
+============================================================ -->
+<div class="card" id="health-card">
+  <div class="section-header">
+    <h2 style="margin:0;">Status &amp; Health</h2>
+    <span id="health-pill" class="pill pill-{{ room.status.lower() }}">{{ room.status }}</span>
+  </div>
+  <div style="display:flex; gap:2rem; flex-wrap:wrap; font-size:0.85rem;">
+    <div>
+      <span style="color:#64748b;">Port</span><br>
+      <span id="hlt-port" class="mono">{{ room.port or '—' }}</span>
+    </div>
+    <div>
+      <span style="color:#64748b;">PID</span><br>
+      <span id="hlt-pid" class="mono">{{ room.pid or '—' }}</span>
+    </div>
+    <div>
+      <span style="color:#64748b;">CPU</span><br>
+      <span id="hlt-cpu" class="mono">—</span>
+    </div>
+    <div>
+      <span style="color:#64748b;">RSS</span><br>
+      <span id="hlt-rss" class="mono">—</span>
+    </div>
+    <div>
+      <span style="color:#64748b;">Reachable</span><br>
+      <span id="hlt-alive" class="mono">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+  Live log tail
+============================================================ -->
+<div class="card" style="padding-bottom:1rem;">
+  <div class="section-header">
+    <h2 style="margin:0;">Live Log</h2>
+    <button class="btn btn-neutral btn-sm" onclick="toggleStream(this)">⏸ Pause</button>
+    <button class="btn btn-neutral btn-sm" onclick="clearLog()">Clear</button>
+  </div>
+  <div class="log-box" id="log-box">
+{% for line in logs %}
+    <div class="line">{{ line }}</div>
+{% endfor %}
+  </div>
+</div>
+
+<!-- ============================================================
+  AP web identity note at the bottom
+============================================================ -->
+<div style="margin-top:1.5rem; color:#334155; font-size:0.78rem; line-height:1.7;">
+  <strong style="color:#475569;">Remember:</strong>
+  The URL of this page (<code>/room/{{ room.id }}</code>) is for management only.
+  Your players connect to the <strong>game port</strong>:
+  <code style="color:#a78bfa;">{{ connect.wss or 'wss://host:PORT' }}</code>.
+  These are different addresses — the AP protocol has no room-ID in its handshake;
+  identity is the port.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ---- SSE log streaming ---- */
+var evtSource = null;
+var streaming = true;
+var logBox = document.getElementById("log-box");
+
+function scrollLog() { logBox.scrollTop = logBox.scrollHeight; }
+scrollLog();  // scroll to bottom on load
+
+function appendLine(text) {
+  var d = document.createElement("div");
+  d.className = "line";
+  d.textContent = text;
+  logBox.appendChild(d);
+  // Keep last 500 lines to avoid memory blowup
+  while (logBox.children.length > 500) { logBox.removeChild(logBox.firstChild); }
+  scrollLog();
+}
+
+function startStream() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource("/room/{{ room.id }}/logs?stream=1");
+  evtSource.onmessage = function(e) {
+    if (!streaming) return;
+    try { appendLine(JSON.parse(e.data)); } catch(_) { appendLine(e.data); }
+  };
+  evtSource.onerror = function() {
+    setTimeout(startStream, 3000);  // reconnect
+  };
+}
+
+function toggleStream(btn) {
+  streaming = !streaming;
+  btn.textContent = streaming ? "⏸ Pause" : "▶ Resume";
+}
+function clearLog() { logBox.innerHTML = ""; }
+
+startStream();
+
+/* ---- Health poll (every 5 s) ---- */
+function pollHealth() {
+  fetch("/room/{{ room.id }}/health")
+    .then(function(r) { return r.json(); })
+    .then(function(h) {
+      document.getElementById("hlt-pid").textContent   = h.pid   || "—";
+      document.getElementById("hlt-port").textContent  = h.port  || "—";
+      document.getElementById("hlt-cpu").textContent   = h.cpu_percent != null ? h.cpu_percent + "%" : "—";
+      document.getElementById("hlt-rss").textContent   = h.rss_mb   != null ? h.rss_mb + " MB" : "—";
+      document.getElementById("hlt-alive").textContent = h.alive != null ? (h.alive ? "✓" : "✗") : "—";
+
+      var pill = document.getElementById("health-pill");
+      var sp   = document.getElementById("status-pill");
+      var cls  = "pill pill-" + (h.status || "uploaded").toLowerCase();
+      if (pill) { pill.className = cls; pill.textContent = h.status || ""; }
+      if (sp)   { sp.className   = cls; sp.textContent   = h.status || ""; }
+
+      /* Update connect address if port changed */
+      if (h.port) {
+        var wssEl = document.getElementById("wss-addr");
+        if (wssEl) {
+          var host = {{ connect.host | tojson }};
+          wssEl.textContent = "wss://" + host + ":" + h.port;
+        }
+      }
+    })
+    .catch(function() {});
+}
+
+pollHealth();
+setInterval(pollHealth, 5000);
+
+/* ---- Password form: submit as JSON so response is handled gracefully ---- */
+document.getElementById("pw-form").addEventListener("submit", function(e) {
+  e.preventDefault();
+  var pw = this.querySelector("input[name=password]").value;
+  fetch("/room/{{ room.id }}/password", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({password: pw || null})
+  }).then(function() { window.location.reload(); });
+});
+</script>
+{% endblock %}

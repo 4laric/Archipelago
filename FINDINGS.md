@@ -105,10 +105,10 @@ two-machine run that settles this and produces quotable magnitudes.
 
 ---
 
-# Update: the rewrite works (archipela-go vs MultiServer)
+# Update: the rewrite works (Peliarch vs MultiServer)
 
 The single-event-loop diagnosis above predicted that taking the work off the loop would
-remove the wall. It does. `archipela-go` (Go, protocol-compatible skeleton — see
+remove the wall. It does. `Peliarch` (Go, protocol-compatible skeleton — see
 `PROTOCOL_SURFACE.md` / `archipelago-go/`) was scored by the **same harness**.
 
 ## Controlled head-to-head @ 250 slots
@@ -118,7 +118,7 @@ same box, same `--server-pid` sampling. Both sides drove an **identical 6,225 ch
 (confound removed; this is not "Go did less work"). Python ran with save ON (its real
 behavior); Go has no save.
 
-| metric @ 250 (controlled) | Python MultiServer | archipela-go | py/go |
+| metric @ 250 (controlled) | Python MultiServer | Peliarch | py/go |
 |---|---:|---:|---:|
 | probe p95 | 5,000 ms (pegged) | 4.72 ms | ~1,059× |
 | probe p99 | 5,000 ms | 22.7 ms | ~220× |
@@ -137,7 +137,7 @@ routing p50 15 s vs 8 s — because save-stall timing and the 250-against-1000-r
 bit harder that run. Python at 250 lands somewhere between "8 s" and "fully pegged"
 depending on the day; Go is ~12 ms either way.)
 
-## archipela-go full sweep (synthetic, 50 locs/slot)
+## Peliarch full sweep (synthetic, 50 locs/slot)
 
 | slots | probe p95 | routing p50 | items/checks | fan-out p99 (n) | errors | server CPU med/max |
 |------:|----------:|------------:|--------------|-----------------|:------:|-------------------:|
@@ -146,13 +146,13 @@ depending on the day; Go is ~12 ms either way.)
 | 500   | 51 ms     | 7.7 ms      | 24900/24950  | 211 ms (125k)   | 0      | 6% / 65%           |
 | 1000  | 214 ms    | 103 ms      | 49900/49950  | 492 ms (505k)   | 0      | 18% / 90%          |
 
-archipela-go cleared **1,000 slots** — the population the monolith couldn't survive at
+Peliarch cleared **1,000 slots** — the population the monolith couldn't survive at
 **250** — with zero dropped connections, sub-second routing, fan-out fully alive, and
 throughput tracking input 1:1. There is a gentle slope (probe p95 1.4 → 214 ms across the
 sweep), but at 1,000 the server's median CPU is only 18% and the probe lives in the
 load-generator process — so that top-end creep is most likely the **co-located harness**
 saturating one box driving 1,000 sockets, not the server. In other words, we have not yet
-found archipela-go's ceiling; the off-box split (`OFFBOX_RUN.md`) is what actually finds
+found Peliarch's ceiling; the off-box split (`OFFBOX_RUN.md`) is what actually finds
 it.
 
 ## Verdict
@@ -160,5 +160,47 @@ it.
 The wall was the GIL-bound single asyncio event loop, confirmed by removing it. The cheap
 in-process fixes (async save, notify relay) remain worth ~20% each but were never going to
 reach 1,000; the architecture move does. **Federation** (`FEDERATION.md`) ships the
-1,000-player experience now on stock servers; **archipela-go** is the path to 1,000 in a
+1,000-player experience now on stock servers; **Peliarch** is the path to 1,000 in a
 single room, and the same harness scores both — so every step is measured, not asserted.
+
+---
+
+# Update: cloud ceiling — over the wire, on a €4/month box
+
+The numbers above shared a machine between server and generator. To remove that caveat,
+**Peliarch** (the Go server, dir `archipelago-go/`) was put alone on a **Hetzner CX22
+(2 vCPU / 4 GB RAM, ~€4/mo)** in Falkenstein and driven from a laptop over the open
+internet — `go_ceiling.py` fanning 16 generator processes at one port, synthetic load,
+25 locs/slot, 120 s soak per rung. Latency floors now include real laptop↔Germany RTT, so
+read the *shape*, not the absolute floor.
+
+| connections | established | checks | items | errors | route p95 (worst gen) |
+|---:|---:|---:|---:|---:|---:|
+| 1,000 | 992   | 24,800  | 24,800  | 0   | (warmup) |
+| 2,000 | 1,984 | 49,600  | 49,600  | 0   | 128 ms |
+| 4,000 | 3,984 | 99,600  | 99,600  | 0   | 146 ms |
+| 8,000 | 5,985 | 149,625 | 149,279 | 420 | 671 ms |
+
+Server resource use across the whole ramp (sampled on the box): **CPU mean 26%, peak 156%
+of 200%** (2-core box → peak ≈ 1.5 cores, never saturated); **RSS peak 2.79 GB of 4 GB**.
+
+Read:
+
+- **Peliarch served 4,000 concurrent connections with zero errors and item routing at the
+  network floor (~145 ms), on a €4/month 2-core box, at 26% mean CPU.** Throughput tracked
+  input 1:1 the entire way (items == checks).
+- **The 8,000 rung's shortfall was the client, not the server.** Only 5,985 of 8,000
+  connections ever *established* — the single laptop + home-router NAT topping out — and the
+  ones that connected were still served at **99.8%** (149,279 / 149,625). The server's own
+  CPU never saturated.
+- **On this small box RAM caps first, not CPU.** The 2.79 GB peak is the generous
+  per-connection send buffers; a bigger box, or shrinking the send-channel buffer in
+  `main.go` from 8192, pushes the ceiling much higher. **We did not find Peliarch's
+  compute ceiling.**
+
+For contrast, stock Python MultiServer fell over at **250** on better hardware. Peliarch
+is past **4,000** on the cheapest box Hetzner sells, over the open internet, with the curve
+not yet bending — a **>16× capacity gap for the price of a coffee per month**. The remaining
+ceiling hunt is gated by the load generators (one laptop maxes ~6k connections), not by the
+server; same-datacenter generator boxes would push it further, but the architectural verdict
+is already in.

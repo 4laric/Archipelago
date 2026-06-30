@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 headtohead.py - identical harness run at a fixed slot count against BOTH the Python
-MultiServer and archipela-go, back-to-back, printed side-by-side. One log format,
+MultiServer and peliarch, back-to-back, printed side-by-side. One log format,
 one set of harness params, same sampling - the controlled "sure sure" comparison.
 
-Confound control: archipela-go is launched with --locs-per-slot matched to the real
+Confound control: peliarch is launched with --locs-per-slot matched to the real
 room's per-slot location count (ChecksFinder=25) so both servers do the same per-slot
 work. The Python side reuses the existing multidata in loadtest_out (drives a subset).
 
   python headtohead.py --slots 250 --soak-seconds 180
-  python headtohead.py --slots 250 --locs-per-slot 25 --go-bin ./archipelago-go/archipela-go
+  python headtohead.py --slots 250 --locs-per-slot 25 --go-bin ./archipelago-go/peliarch
 """
 import argparse, json, os, subprocess, sys, time
 from run_loadtest import (free_port, resolve_server_pid, stop_server,
@@ -23,7 +23,7 @@ def log(msg):
 
 
 def find_go_bin():
-    for p in ("archipelago-go/archipela-go.exe", "archipelago-go/archipela-go"):
+    for p in ("archipelago-go/peliarch.exe", "archipelago-go/peliarch"):
         f = os.path.join(HERE, p)
         if os.path.isfile(f):
             return f
@@ -131,9 +131,9 @@ def main():
 
     if not args.skip_go:
         if not go_bin or not os.path.isfile(go_bin):
-            sys.exit("archipela-go binary not found; build it or pass --go-bin")
+            sys.exit("peliarch binary not found; build it or pass --go-bin")
         gport = free_port(38291)
-        run_phase("archipela-go",
+        run_phase("peliarch",
                   [go_bin, "--host", "0.0.0.0", "--port", str(gport),
                    "--locs-per-slot", str(args.locs_per_slot)],
                   gport, args, go_out)
@@ -145,7 +145,7 @@ def main():
     keys = ["probe p50", "probe p95", "probe p99", "route p50", "route p95",
             "fanout p99", "checks", "items", "errors", "cpu med", "cpu max", "rss max"]
     w = 14
-    print("metric".ljust(w) + "Python".rjust(w) + "archipela-go".rjust(w) + "  ratio(py/go)")
+    print("metric".ljust(w) + "Python".rjust(w) + "peliarch".rjust(w) + "  ratio(py/go)")
     for k in keys:
         pv = py.get(k) if py else None
         gv = go.get(k) if go else None

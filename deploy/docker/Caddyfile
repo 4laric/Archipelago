@@ -1,0 +1,11 @@
+# Fronts ONLY the website (path-based). Game rooms are reached directly on their
+# own ports (ws://host:PORT) — see deploy/docker/README.md §wss for adding TLS there.
+{
+	email {$ACME_EMAIL}
+}
+
+# {$DOMAIN} can be a real hostname (auto-HTTPS) or ":80" for a local/no-TLS test.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:8080
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hetzner_setup.sh — provision a Hetzner box (Ubuntu 24.04) to host the off-box
-# head-to-head: Python MultiServer + archipela-go, both reachable from your laptop.
+# head-to-head: Python MultiServer + peliarch, both reachable from your laptop.
 #
 # Run ON the box, after you've copied your Archipelago folder over (see
 # HETZNER_HEADTOHEAD.md). Idempotent — safe to re-run.
@@ -23,8 +23,11 @@ pip install -q -U pip
 pip install -q "websockets<14" PyYAML jellyfish schema orjson platformdirs \
     colorama typing_extensions psutil cython bsdiff4
 
-echo "[setup] building archipela-go…"
-( cd archipelago-go && go build -o archipela-go . )
+echo "[setup] building Cython _speedups (so the Python server uses the same fast path)…"
+( cythonize -b -i _speedups.pyx ) || echo "[setup] _speedups build failed — Python server will use the slower pure-Python path (still fine)"
+
+echo "[setup] building peliarch…"
+( cd archipelago-go && go build -o peliarch . )
 
 echo
 echo "[setup] done."

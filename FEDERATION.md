@@ -147,7 +147,7 @@ Responsibilities:
 
 Islands need no code changes: stock MultiServer already supports a per-room
 **password** (`--password`) and named slots — that's the entire enforcement mechanism the
-director leans on. (archipela-go can later upgrade the password into a real per-connection
+director leans on. (peliarch can later upgrade the password into a real per-connection
 token check; the director's API doesn't change.)
 
 ## Slot mechanism (how dynamic join works on baked multidata)
@@ -224,7 +224,7 @@ The bridge gains **relay groups** so chat/presence don't leak across access line
 - **Reconnection** is free once the directory exists: a dropped player resolves back to
   their same `(island, slot)`.
 - **Forward-compat:** the director is the durable piece. Islands can be stock MultiServer
-  today and archipela-go shards later; the password mechanism can become a token/auth hook
+  today and peliarch shards later; the password mechanism can become a token/auth hook
   in the Go server without touching the director's placement logic.
 
 ## Orchestration delta

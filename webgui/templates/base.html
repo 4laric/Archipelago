@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Peliarch{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- Top nav ---- */
+    header {
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3148;
+      padding: 0 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      height: 3.25rem;
+    }
+    header a.brand {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #7c6af7;
+      text-decoration: none;
+      letter-spacing: -0.02em;
+    }
+    header a.brand span { color: #a78bfa; }
+    header nav { display: flex; gap: 1rem; margin-left: auto; align-items: center; }
+    header nav a {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.875rem;
+      transition: color 0.15s;
+    }
+    header nav a:hover { color: #e2e8f0; }
+
+    /* Donation link — always visible in nav */
+    .donate-link {
+      background: #7c6af7;
+      color: #fff !important;
+      padding: 0.35rem 0.85rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-decoration: none !important;
+      transition: background 0.15s;
+    }
+    .donate-link:hover { background: #6d5ae0 !important; color: #fff !important; }
+
+    /* ---- Main content ---- */
+    main {
+      flex: 1;
+      padding: 2rem 1.5rem;
+      max-width: 960px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* ---- Typography ---- */
+    h1 { font-size: 1.75rem; font-weight: 700; color: #f1f5f9; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.25rem; font-weight: 600; color: #e2e8f0; margin-bottom: 0.5rem; }
+    h3 { font-size: 1rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem; }
+    p  { color: #94a3b8; font-size: 0.9rem; line-height: 1.6; }
+    a  { color: #7c6af7; }
+
+    /* ---- Cards ---- */
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 0.75rem;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    /* ---- Status pill ---- */
+    .pill {
+      display: inline-block;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .pill-running    { background: #14532d; color: #4ade80; }
+    .pill-starting   { background: #1c1917; color: #fb923c; }
+    .pill-hibernated { background: #1e1b4b; color: #818cf8; }
+    .pill-crashed    { background: #450a0a; color: #f87171; }
+    .pill-uploaded   { background: #1e293b; color: #94a3b8; }
+    .pill-stopped    { background: #1e293b; color: #64748b; }
+
+    /* ---- Buttons ---- */
+    .btn {
+      display: inline-block;
+      padding: 0.45rem 1rem;
+      border-radius: 0.4rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #7c6af7; color: #fff; }
+    .btn-danger  { background: #7f1d1d; color: #fca5a5; }
+    .btn-neutral { background: #2d3148; color: #e2e8f0; }
+    .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.78rem; }
+
+    /* ---- Forms ---- */
+    label { display: block; font-size: 0.82rem; color: #94a3b8; margin-bottom: 0.25rem; }
+    input[type=text], input[type=password], select, textarea {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 0.4rem;
+      color: #e2e8f0;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus { border-color: #7c6af7; }
+    .form-group { margin-bottom: 1rem; }
+
+    /* ---- Connect block ---- */
+    .connect-block {
+      background: #0f1117;
+      border: 2px solid #7c6af7;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .connect-block .wss-addr {
+      font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #a78bfa;
+      word-break: break-all;
+    }
+    .copy-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .copy-btn {
+      background: #2d3148;
+      color: #a78bfa;
+      border: 1px solid #3d4168;
+      border-radius: 0.35rem;
+      padding: 0.25rem 0.6rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .copy-btn:hover { background: #3d4168; }
+    .field-pair {
+      display: flex;
+      gap: 1.5rem;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .field-pair .field label { font-size: 0.72rem; color: #64748b; margin-bottom: 0.1rem; }
+    .field-pair .field .val {
+      font-family: monospace;
+      font-size: 0.92rem;
+      color: #e2e8f0;
+    }
+
+    /* ---- Log tail ---- */
+    .log-box {
+      background: #0a0c12;
+      border: 1px solid #2d3148;
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 0.78rem;
+      color: #7dd3fc;
+      height: 18rem;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-box .line { line-height: 1.45; }
+
+    /* ---- Upload area ---- */
+    .upload-zone {
+      border: 2px dashed #2d3148;
+      border-radius: 0.75rem;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .upload-zone:hover, .upload-zone.drag-over { border-color: #7c6af7; }
+    .upload-zone p { font-size: 0.9rem; color: #64748b; margin-top: 0.5rem; }
+
+    /* ---- Table ---- */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { color: #64748b; font-weight: 600; text-align: left; padding: 0.5rem 0.75rem;
+         border-bottom: 1px solid #2d3148; }
+    td { padding: 0.6rem 0.75rem; border-bottom: 1px solid #1e2235; vertical-align: middle; }
+    tr:hover td { background: #1a1d27; }
+    .mono { font-family: monospace; }
+
+    /* ---- Misc ---- */
+    .page-sub { color: #64748b; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .flash { background: #14532d; color: #4ade80; padding: 0.75rem 1rem; border-radius: 0.5rem;
+             margin-bottom: 1rem; font-size: 0.875rem; }
+    .flash-err { background: #450a0a; color: #f87171; }
+    .sleeping-note { background: #1e1b4b; color: #818cf8; border-radius: 0.5rem;
+                     padding: 0.5rem 0.75rem; font-size: 0.82rem; margin-top: 0.5rem; }
+    .section-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 0.75rem; margin-top: 1.5rem;
+    }
+    .divider { border: none; border-top: 1px solid #2d3148; margin: 1.5rem 0; }
+
+    /* ---- Footer ---- */
+    footer {
+      text-align: center;
+      padding: 1.25rem;
+      font-size: 0.78rem;
+      color: #475569;
+      border-top: 1px solid #1a1d27;
+    }
+    footer a { color: #7c6af7; text-decoration: none; }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<header>
+  <a class="brand" href="/">Peli<span>arch</span></a>
+  <nav>
+    <a href="/">Dashboard</a>
+    <a class="donate-link" href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
+  </nav>
+</header>
+
+<main>
+  {% block content %}{{ content|safe if content is defined else "" }}{% endblock %}
+</main>
+
+<footer>
+  Peliarch — self-host edition &nbsp;·&nbsp;
+  <a href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">Support the project ☕</a>
+</footer>
+
+<script>
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = "Copied!";
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  }).catch(function() {
+    /* fallback */
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    btn.textContent = "Copied!";
+    setTimeout(function() { btn.textContent = btn.dataset.orig || "Copy"; }, 1500);
+  });
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

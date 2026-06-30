@@ -108,7 +108,7 @@ def main():
         log(f"=== PHASE 1: Python MultiServer @ {args.host}:{args.py_port} ===")
         drive(args.host, args.py_port, args.slots, args, py_out)
     if not args.skip_go:
-        log(f"=== PHASE 2: archipela-go @ {args.host}:{args.go_port} ===")
+        log(f"=== PHASE 2: peliarch @ {args.host}:{args.go_port} ===")
         drive(args.host, args.go_port, args.slots, args, go_out)
 
     print("\n========= REMOTE HEAD-TO-HEAD @ %d slots (host %s) =========" % (args.slots, args.host))
@@ -117,7 +117,7 @@ def main():
     keys = ["probe p50", "probe p95", "probe p99", "route p50", "route p95",
             "fanout p99", "checks", "items", "errors", "cpu max (box)", "rss max (box)"]
     w = 16
-    print("metric".ljust(w) + "Python".rjust(w) + "archipela-go".rjust(w) + "  ratio(py/go)")
+    print("metric".ljust(w) + "Python".rjust(w) + "peliarch".rjust(w) + "  ratio(py/go)")
     for k in keys:
         pv = py.get(k) if py else None
         gv = go.get(k) if go else None

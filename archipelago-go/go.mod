@@ -1,4 +1,4 @@
-module archipela-go
+module peliarch
 
 go 1.21
 

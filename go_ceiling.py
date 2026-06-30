@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-go_ceiling.py — find archipela-go's ceiling by FANNING many generators at one server.
+go_ceiling.py — find peliarch's ceiling by FANNING many generators at one server.
 
 One harness is a single asyncio process and tops out before a multi-core Go server does,
 so this launches K parallel ap_loadtest.py processes against the SAME Go port and ramps
-total load (K x slots-each) rung by rung. Because archipela-go is synthetic (it assigns a
+total load (K x slots-each) rung by rung. Because peliarch is synthetic (it assigns a
 fresh slot per Connect), the generators need no coordination — the server can't tell them
 apart, so total connections = generators x slots-per-gen.
 
@@ -12,14 +12,14 @@ Run this ON a generator box (or your laptop) pointed at the Go server's box. Wat
 SERVER's CPU separately with sample_server.py on its box — Go can exceed 100% (multi-core);
 the ceiling is when it pegs all cores OR the aggregate latency climbs / errors appear.
 
-  # server box:   ./archipela-go --host 0.0.0.0 --port 38291
+  # server box:   ./peliarch --host 0.0.0.0 --port 38291
   #               python3 sample_server.py --port 38291 --out go_cpu.csv
   # generator box:
   python go_ceiling.py --host <SERVER_IP> --port 38291 \
       --rungs 1000,2000,4000,8000 --generators 16 --soak-seconds 120
 
 Read the box's go_cpu.csv alongside this table: the rung where server CPU stops scaling
-(all cores pegged) or aggregate probe/routing climbs is archipela-go's per-box ceiling.
+(all cores pegged) or aggregate probe/routing climbs is peliarch's per-box ceiling.
 """
 import argparse, json, math, os, subprocess, sys, time
 
@@ -65,7 +65,7 @@ def aggregate(paths):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--host", required=True, help="archipela-go server host/IP")
+    ap.add_argument("--host", required=True, help="peliarch server host/IP")
     ap.add_argument("--port", type=int, default=38291)
     ap.add_argument("--rungs", default="1000,2000,4000,8000",
                     help="comma-separated TOTAL connection counts to ramp")
@@ -133,7 +133,7 @@ def main():
     cols = ["target", "live", "checks", "items", "errors",
             "probe p95 (worst)", "probe p99 (worst)", "route p95 (worst)"]
     w = 18
-    print("\n===== archipela-go CEILING RAMP (%d generators) =====" % K)
+    print("\n===== peliarch CEILING RAMP (%d generators) =====" % K)
     print("".join(c.rjust(w) for c in cols))
     for row in table:
         print("".join(("-" if row.get(c) is None else str(row.get(c))).rjust(w) for c in cols))

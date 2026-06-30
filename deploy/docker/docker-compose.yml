@@ -1,0 +1,42 @@
+# Peliarch self-host stack — `docker compose up -d` from this directory.
+# Reads .env in this directory (copy .env.example → .env first).
+name: ${COMPOSE_PROJECT_NAME:-peliarch}
+
+services:
+  web:
+    build:
+      context: ../..                 # repo root (needs MultiServer.py, webgui/, archipelago-go/)
+      dockerfile: deploy/docker/Dockerfile
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      STORE_PATH: /data/rooms.json
+      REPO_DIR: /app
+    volumes:
+      - peliarch_data:/data          # uploads, room saves, logs, rooms.json
+    # port-per-room: expose the SAME range the orchestrator allocates (PORT_START..PORT_END)
+    ports:
+      - "${PORT_START:-38400}-${PORT_END:-38463}:${PORT_START:-38400}-${PORT_END:-38463}"
+    expose:
+      - "8080"                       # website, internal — Caddy proxies it
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on: [web]
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+
+volumes:
+  peliarch_data:
+  caddy_data:
+  caddy_config:

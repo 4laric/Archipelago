@@ -22,7 +22,7 @@ subclass with DB-backed save persistence and room-timeout logic). So three paths
 |---|---|---|
 | **A. Thin custom orchestrator** | Full control; your scaling tiers are native; small surface you understand end-to-end (you've already prototyped it in `federation.py`). | Rebuild upload/DB/room-page/auth from scratch. |
 | **B. Fork WebHostLib** | Parity with archipelago.gg fast; battle-tested room lifecycle + DB persistence. | Inherit their Flask/Postgres stack and assumptions; their per-room hosting backend caps where your differentiator lives; you fork a moving target. |
-| **C. Hybrid (recommended)** | Reuse WebHost's **web/upload/DB/room-page** layer; **replace the room-hosting backend** (`WebHostContext` launch path) with your own orchestrator so you own scheduling + can route big rooms to archipela-go/federation. | Some integration glue at the seam between their web layer and your backend. |
+| **C. Hybrid (recommended)** | Reuse WebHost's **web/upload/DB/room-page** layer; **replace the room-hosting backend** (`WebHostContext` launch path) with your own orchestrator so you own scheduling + can route big rooms to peliarch/federation. | Some integration glue at the seam between their web layer and your backend. |
 
 **Recommendation: C.** The web/upload/persistence surface is undifferentiated plumbing —
 reuse it. The room-hosting backend is exactly where your value (mega-rooms, islands,
@@ -111,7 +111,7 @@ hosting platform is therefore a **port allocator + reverse proxy**, not a path r
   the *game connection* is port-based. Don't conflate the two.
 
 (If you ever control the client or add a subprotocol you could multiplex — out of scope
-for stock-client compatibility, but note it for archipela-go, which *could* expose a
+for stock-client compatibility, but note it for peliarch, which *could* expose a
 room-id handshake later.)
 
 ---
@@ -123,7 +123,7 @@ The platform offers tiers, selected per room by expected size:
 | Tier | Backend | Capacity (from FINDINGS) | Use |
 |---|---|---|---|
 | **Standard** | stock MultiServer | comfortable to ~100–150 active slots | the 99% of rooms |
-| **Large** | archipela-go (single big room) | 1,000+ in benchmarks, server ~idle | one big room, full cross-routing |
+| **Large** | peliarch (single big room) | 1,000+ in benchmarks, server ~idle | one big room, full cross-routing |
 | **Federated** | islands + bridge (+ director) | 1,000+ across islands, stock servers | events, friend/sub-island social play |
 
 Standard ships day one on stock servers. **Large** and **Federated** are the
@@ -131,7 +131,7 @@ differentiator: archipelago.gg itself can't host these, so "the host that runs t
 the official one can't" is real positioning. The **harness is the SLA tool** — load-test
 each tier, publish capacity numbers, gate tier eligibility by measured room size.
 
-Note: archipela-go must grow the real-multidata loader before it can back **Large** for
+Note: peliarch must grow the real-multidata loader before it can back **Large** for
 real rooms (it's synthetic today — see `PROTOCOL_SURFACE.md`). Federated works on stock
 servers *now*.
 
@@ -200,7 +200,7 @@ WebHostLib's existing surface with the hosting backend swapped.
 3. `wss` via Caddy/Traefik; room page with connect address + status + log tail.
 4. Per-room resource limits + restricted unpickling + size caps.
 
-**Roadmap:** Large tier (archipela-go + real-multidata loader) → Federated tier (islands +
+**Roadmap:** Large tier (peliarch + real-multidata loader) → Federated tier (islands +
 bridge + director, incl. friend/sub-island placement) → multi-node scheduling → billing/tiers.
 
 ---
@@ -212,7 +212,7 @@ bridge + director, incl. friend/sub-island placement) → multi-node scheduling 
 | `federation.py` (launch/supervise N servers) | seed of the **orchestrator** |
 | `sample_server.py` (resolve-listening-PID, CPU/RSS) | per-room **health/metrics** |
 | `ap_loadtest.py` + `sweep_compare.py` | **capacity SLA** / tier qualification |
-| `archipela-go/` | **Large** tier backend (after real-multidata loader) |
+| `peliarch/` | **Large** tier backend (after real-multidata loader) |
 | `FEDERATION.md` + `federation*.py` + director spec | **Federated** tier + friend/sub islands |
 | `PROTOCOL_SURFACE.md` | what a tier backend must implement to be drop-in |
 
@@ -226,7 +226,7 @@ bridge + director, incl. friend/sub-island placement) → multi-node scheduling 
   elsewhere). Keeping generation out of v1 is a big simplification vs full archipelago.gg.
 - **Self-host vs SaaS:** a self-hostable single-box image is a fast first deliverable and a
   good wedge even before multi-node SaaS.
-- **Where archipela-go earns the Large tier:** the real-multidata loader is the gating
+- **Where peliarch earns the Large tier:** the real-multidata loader is the gating
   piece; until then Large is "federated under the hood."
 
 ---

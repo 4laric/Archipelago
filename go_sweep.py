@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-go_sweep.py - sweep archipela-go with the SAME methodology as run_loadtest.py, so the
+go_sweep.py - sweep peliarch with the SAME methodology as run_loadtest.py, so the
 Go curves are directly comparable to the Python MultiServer baseline in FINDINGS.md.
 
-Per rung: start a fresh archipela-go on a free port, sample its CPU/RSS via --server-pid,
+Per rung: start a fresh peliarch on a free port, sample its CPU/RSS via --server-pid,
 drive ap_loadtest.py at that slot count, kill it, next rung; then sweep_compare.
 Synthetic (no multidata) - same load shape both sides = clean architecture comparison.
 
   python go_sweep.py --rungs 100,250,500,1000 --soak-seconds 180 --check-rate 1
-  python go_sweep.py --go-bin ./archipelago-go/archipela-go --rungs 100,250 --dry-run
+  python go_sweep.py --go-bin ./archipelago-go/peliarch --rungs 100,250 --dry-run
 """
 import argparse, os, socket, subprocess, sys, time
 from run_loadtest import free_port, resolve_server_pid, stop_server, wait_for_port
@@ -25,8 +25,8 @@ def log(msg):
 
 
 def find_go_bin():
-    for p in ("archipelago-go/archipela-go.exe", "archipelago-go/archipela-go",
-              "archipela-go.exe", "archipela-go"):
+    for p in ("archipelago-go/peliarch.exe", "archipelago-go/peliarch",
+              "peliarch.exe", "peliarch"):
         full = os.path.join(HERE, p)
         if os.path.isfile(full):
             return full
@@ -37,7 +37,7 @@ def main():
     global _LOGF
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--go-bin", default=None, help="path to the built archipela-go binary")
+    ap.add_argument("--go-bin", default=None, help="path to the built peliarch binary")
     ap.add_argument("--rungs", default="100,250,500,1000")
     ap.add_argument("--port", type=int, default=38281)
     ap.add_argument("--check-rate", type=float, default=1.0)
@@ -55,7 +55,7 @@ def main():
 
     go_bin = args.go_bin or find_go_bin()
     if not go_bin or (not args.dry_run and not os.path.isfile(go_bin)):
-        sys.exit("archipela-go binary not found; build it (go build -o archipela-go .) "
+        sys.exit("peliarch binary not found; build it (go build -o peliarch .) "
                  "or pass --go-bin")
     rungs = sorted(int(x) for x in args.rungs.split(","))
     run_id = args.run_id or time.strftime("%Y%m%d_%H%M%S", time.gmtime())
@@ -76,7 +76,7 @@ def main():
         if not args.dry_run:
             srv = subprocess.Popen(srv_cmd, cwd=HERE)
             if not wait_for_port("127.0.0.1", port, timeout=30):
-                stop_server(srv); sys.exit(f"archipela-go didn't open port {port}")
+                stop_server(srv); sys.exit(f"peliarch didn't open port {port}")
             time.sleep(1)
             server_pid = resolve_server_pid(srv.pid, port)
             log(f"server pid={server_pid}")
@@ -100,7 +100,7 @@ def main():
         results.append(out)
         stop_server(srv)
 
-    log("=== sweep comparison (archipela-go) ===")
+    log("=== sweep comparison (peliarch) ===")
     cmp_cmd = [py, os.path.join(HERE, "sweep_compare.py")] + results
     log("$ " + " ".join(str(c) for c in cmp_cmd))
     if not args.dry_run:

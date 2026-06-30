@@ -1,0 +1,56 @@
+[ramp] connecting 499 slots over 30.0s
+[ramp] 499/499 connected; refused=0 errors=0
+[soak] 120.0s @ 1.0 checks/client/s
+[soak] checks_sent=12475 items_recv=11309
+[fanout] 149 subscribers, 9 setters, 20.0s
+[fanout] samples=219259
+
+===== RESULTS =====
+{
+  "config": {
+    "slots": 500,
+    "live": 499,
+    "check_rate": 1.0,
+    "soak_seconds": 120.0,
+    "tracker_fraction": 0.3
+  },
+  "loop_health_probe_rtt_ms": {
+    "p50": 111.91,
+    "p95": 930.71,
+    "p99": 1545.83,
+    "max": 5000.0,
+    "n": 107
+  },
+  "routing_latency_ms": {
+    "p50": null,
+    "p95": null,
+    "p99": null,
+    "n": 0
+  },
+  "fanout_latency_ms": {
+    "p50": 8572.1,
+    "p95": 18032.67,
+    "p99": 20304.19,
+    "n": 268739
+  },
+  "reconnect": {
+    "time_to_connected_ms_p95": null,
+    "backlog_items_p95": null,
+    "n": 0
+  },
+  "throughput": {
+    "checks_sent": 12475,
+    "items_recv": 12427
+  },
+  "errors": 25,
+  "refused": 0,
+  "error_sample": [
+    "P00498:ConnectionClosedError",
+    "P00467:ConnectionClosedError",
+    "P00446:ConnectionClosedError",
+    "P00388:ConnectionClosedError",
+    "P00372:ConnectionClosedError"
+  ]
+}
+
+wrote C:\Users\alari\Documents\Archipelago\go_ceiling_results\r8000_20260629_165744_g15.json (includes per-tick timeseries for plotting lag/RSS/CPU)
