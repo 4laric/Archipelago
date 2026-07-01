@@ -60,10 +60,10 @@
     Game Connection Address
   </div>
 
-  {% if connect.wss %}
-    <div class="wss-addr" id="wss-addr">{{ connect.wss }}</div>
+  {% if connect.ws %}
+    <div class="wss-addr" id="wss-addr">{{ connect.ws }}</div>
     <div class="copy-row">
-      <button class="copy-btn" onclick="copyText('{{ connect.wss }}', this)">Copy wss:// address</button>
+      <button class="copy-btn" onclick="copyText('{{ connect.ws }}', this)">Copy ws:// address</button>
       <button class="copy-btn" onclick="copyText('{{ connect.host }}', this)">Copy host</button>
       <button class="copy-btn" onclick="copyText('{{ connect.port }}', this)">Copy port</button>
     </div>
@@ -77,8 +77,8 @@
         <div class="val" style="color:#7dd3fc;">{{ connect.port }}</div>
       </div>
       <div class="field">
-        <label>WebSocket URL (ws://)</label>
-        <div class="val" style="color:#94a3b8; font-size:0.82rem;">{{ connect.ws }}</div>
+        <label>Secure URL (wss:// — after TLS setup)</label>
+        <div class="val" style="color:#64748b; font-size:0.82rem;">{{ connect.wss }}</div>
       </div>
     </div>
   {% else %}
@@ -97,13 +97,14 @@
       In the Archipelago launcher, go to <em>Connect</em> and enter the
       <strong>host</strong> and <strong>port</strong> shown above separately.
       <br><br>
-      <strong style="color:#e2e8f0;">Browser / Text client</strong><br>
-      Connect to <code style="color:#a78bfa;">{{ connect.wss or 'wss://host:PORT' }}</code>
+      <strong style="color:#e2e8f0;">Text client</strong><br>
+      Connect to <code style="color:#a78bfa;">{{ connect.ws or 'ws://host:PORT' }}</code>
       {% if room.password %}
         with password <code>••••</code> (set by room owner).
       {% else %}
         — no password required.
       {% endif %}
+      <br><span style="color:#64748b;">(Browser-based clients need <code>wss://</code> — enable TLS on room ports first.)</span>
       <br><br>
       <strong style="color:#e2e8f0;">Note on sleeping rooms</strong><br>
       If the status shows <em>Sleeping</em>, just connect — the room wakes automatically

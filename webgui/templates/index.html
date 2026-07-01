@@ -99,10 +99,10 @@
         {% endif %}
       </td>
       <td class="mono" style="font-size:0.82rem;">
-        {% if ci.wss %}
-          <span style="color:#a78bfa;">{{ ci.wss }}</span>
+        {% if ci.ws %}
+          <span style="color:#a78bfa;">{{ ci.ws }}</span>
           <button class="copy-btn" style="margin-left:0.4rem;"
-                  onclick="copyText('{{ ci.wss }}', this)">Copy</button>
+                  onclick="copyText('{{ ci.ws }}', this)">Copy</button>
           <br>
           <span style="font-size:0.72rem; color:#64748b;">host: {{ ci.host }} &nbsp;port: {{ ci.port }}</span>
         {% else %}

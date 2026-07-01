@@ -27,7 +27,7 @@ import threading
 import time
 import uuid
 import zipfile
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -203,9 +203,10 @@ class Room:
     _proc: object = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d.pop("_proc", None)
-        return d
+        # NB: do NOT use asdict() here — it deep-copies every field, including the
+        # live subprocess.Popen in _proc (which holds a thread lock and can't be
+        # copied/pickled). Build the persistable dict from the scalar fields directly.
+        return {f.name: getattr(self, f.name) for f in fields(self) if f.name != "_proc"}
 
     @staticmethod
     def from_dict(d: dict) -> "Room":
