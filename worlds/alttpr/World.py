@@ -109,6 +109,7 @@ class ALttPRWorld(World):
     item_name_groups = {
         "Bottles": {"Bottle", "Bottle (Green Potion)", "Bottle (Red Potion)", "Bottle (Blue Potion)", "Bottle (Bee)", "Bottle (Good Bee)", "Bottle (Fairy)"},
         "Ocarina": {"Ocarina", "Ocarina (Activated)"},
+        "Progressive Mail": {"Progressive Armor"}
     }
 
     # There is always one region that the generator starts from & assumes you can always go back to.
