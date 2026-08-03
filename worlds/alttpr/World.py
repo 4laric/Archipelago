@@ -8,7 +8,7 @@ import typing
 from urllib.request import urlopen
 
 # Imports of base Archipelago modules must be absolute.
-from BaseClasses import CollectionState, Entrance, Item, ItemClassification, Region, MultiWorld
+from BaseClasses import CollectionState, Entrance, Item, ItemClassification, Region, MultiWorld, Tutorial
 from Options import OptionError
 import settings
 from worlds.AutoWorld import LogicMixin, WebWorld, World
@@ -72,13 +72,22 @@ class ALttPRSettings(settings.Group):
 
 
 class ALttPRWebWorld(WebWorld):
+    setup_en = Tutorial(
+        "ALTTP Door Randomizer Setup Guide",
+        "A guide to setting up ALTTP Door Randomizer for Archipelago on your computer.",
+        "English",
+        "setup_en.md",
+        "setup/en",
+        ["aurabot"]
+    )
+    tutorials = [setup_en]
     option_groups = alttpr_options.alttpr_option_groups
 
 
 class ALttPRWorld(World):
     """
-    The Legend of Zelda: A Link to the Past is a good game.
-    TODO: Better description here.
+    This version of A Link to the Past is based on the Door Randomizer fork of ALTTPR, and brings in many new entrance randomization options 
+    and many other modernizations to improve the gameplay experience.
     """
 
     # IMO Zelda games should start with "The Legend of Zelda", but no one else does it.
