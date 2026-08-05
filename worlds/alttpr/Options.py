@@ -260,6 +260,29 @@ class PrizeShuffle(Toggle):
     default = False
 
 
+class PotShuffle(Choice):
+    """Pots now contain randomized items. Any pots that haven't been checked will have their color changed.
+    - None - No pots are in the pool, like normal randomizer
+    - Key Pots - The pots that have keys are in the pool
+    - Cave Pots - The pots that are not found in dungeons are in the pool (includes Spike Cave large block)
+    - Cave + Keys Pots - Both non-dungeon pots and pots that used to have keys
+    - Reduced Dungeon Pots - Cave+Keys plus roughly 25% of dungeon pots (dynamic mode with colored pots)
+    - Clustered Dungeon Pots - Like reduced but pots grouped by logical sets, roughly 50% chosen (dynamic mode)
+    - Excludes Empty Pots - All pots that had some sort of objects under them
+    - Dungeon Pots - The pots that are in dungeons
+    - Lottery - All pots and large blocks are in the pool"""
+    display_name = "PotShuffle"
+    option_none = 0
+    option_keys = 1
+    option_cave = 2
+    option_cavekeys = 3
+    option_reduced = 4
+    option_clustered = 5
+    option_nonempty = 6
+    option_dungeon = 7
+    option_lottery = 8
+
+
 class FluteShuffle(Choice):
     """Randomize the Flute spot destinations. Balanced will spread the Flute spots around the overworld, while Chaos will place them randomly."""
     display_name = "Flute Shuffle"
@@ -442,6 +465,7 @@ class ALttPROptions(PerGameCommonOptions):
     shopsanity: Shopsanity
     prize_shuffle: PrizeShuffle
     flute_shuffle: FluteShuffle
+    pot_shuffle: PotShuffle
     pre_activated_flute: PreActivatedFlute
     pseudoboots: Pseudoboots
     mirror_scroll: MirrorScroll
@@ -482,6 +506,7 @@ alttpr_option_groups: list[OptionGroup] = [
             KeyDropShuffle,
             Shopsanity,
             PrizeShuffle,
+            PotShuffle,
         ],
     ),
     OptionGroup(

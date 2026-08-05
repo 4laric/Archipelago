@@ -354,6 +354,13 @@ class ALttPRWorld(World):
         # The world can create a multiworld with many players each with different options, but we only need to
         # generate for one player, hence all the "1"s everywhere.
         shuffled_doors = self.options.door_shuffle != "vanilla"
+        if self.options.pot_shuffle != "none":
+            pottery = self.options.pot_shuffle.current_key
+        elif self.options.key_drop_shuffle.value or shuffled_doors:
+            pottery = "keys"
+        else:
+            pottery = "none"
+
         self.door_rando_world = DoorRandoWorld(
             1, {1: "vanilla"}, {1: False}, {1: "none"}, {1: False}, {1: self.options.entrance_shuffle.current_key},
             {1: self.options.door_shuffle.current_key}, {1: "noglitches"}, {1: self.options.world_mode.current_key}, {1: "random"},
@@ -376,7 +383,7 @@ class ALttPRWorld(World):
         self.door_rando_world.customizer = None
         self.door_rando_world.door_type_mode = {1: self.options.door_type_shuffle.current_key}
         self.door_rando_world.dropshuffle = {1: "none" if not (self.options.key_drop_shuffle.value or shuffled_doors) else "keys"}
-        self.door_rando_world.dungeon_counters = {1: self.options.dungeon_counters.current_key if not shuffled_doors else "on"}
+        self.door_rando_world.dungeon_counters = {1: self.options.dungeon_counters.current_key if not shuffled_doors and pottery not in ["none", "cave", "keys", "cavekeys"] else "on"}
         self.door_rando_world.enemy_shuffle = {
             1: alttpr_options.enemy_shuffle_string_from_option(self.options.enemy_shuffle)}
         self.door_rando_world.experimental = {
@@ -397,7 +404,7 @@ class ALttPRWorld(World):
         self.door_rando_world.owKeepSimilar = {1: False}
         self.door_rando_world.owTerrain = {1: False}
         self.door_rando_world.owWhirlpoolShuffle = {1: False}
-        self.door_rando_world.pottery = {1: "none" if not (self.options.key_drop_shuffle.value or shuffled_doors) else "keys"}
+        self.door_rando_world.pottery = {1: pottery}
         self.door_rando_world.prizeshuffle = {1: "none" if not self.options.prize_shuffle.value else "wild"}
         self.door_rando_world.pseudoboots = {1: self.options.pseudoboots.value}
         self.door_rando_world.rom_seeds = {1: self.random.randint(0, 999999999)}

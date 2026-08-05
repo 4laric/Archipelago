@@ -199,12 +199,15 @@ useful_items = [
 ]
 
 filler_items = [
+    "Arrows (5)",
     "Arrows (10)",
     "Bee",
+    "Big Magic",
     "Blue Shield",
     "Bombs (3)",
     "Bombs (10)",
     "Bug Catching Net",
+    "Chicken",
     "Compass (Escape)",
     "Compass (Eastern Palace)",
     "Compass (Desert Palace)",
@@ -231,6 +234,7 @@ filler_items = [
     "Map (Misery Mire)",
     "Map (Turtle Rock)",
     "Map (Ganons Tower)",
+    "Nothing",
     "Piece of Heart",
     "Red Clock",  # Placeholder for filler AP items
     "Red Shield",
@@ -240,7 +244,9 @@ filler_items = [
     "Rupees (50)",
     "Rupees (100)",
     "Single Arrow",
+    "Single Bomb",
     "Small Heart",
+    "Small Magic",
 ]
 
 
