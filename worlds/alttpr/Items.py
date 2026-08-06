@@ -445,6 +445,10 @@ def place_pre_fill_items(world: ALttPRWorld) -> None:
                 new_item = ALttPRItem(upgrade.name, ItemClassification.useful, ItemFactory(upgrade.name, 1).code, world.player)
                 world.multiworld.get_location(location.name, world.player).place_locked_item(new_item)
 
+    if world.options.pot_shuffle != "none":
+        # There is a technical limit of 256 multiworld items under pots
+        shop_locations = [location for location in world.door_rando_world.get_locations() if location.type == LocationType.Pot]
+
 
 def place_escape_key(possible_locations: List[str], world: ALttPRWorld, key_size: str) -> str:
     world.random.shuffle(possible_locations)

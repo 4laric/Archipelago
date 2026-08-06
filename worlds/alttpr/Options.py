@@ -266,9 +266,6 @@ class PotShuffle(Choice):
     - Key Pots - The pots that have keys are in the pool
     - Cave Pots - The pots that are not found in dungeons are in the pool (includes Spike Cave large block)
     - Cave + Keys Pots - Both non-dungeon pots and pots that used to have keys
-    - Reduced Dungeon Pots - Cave+Keys plus roughly 25% of dungeon pots (dynamic mode with colored pots)
-    - Clustered Dungeon Pots - Like reduced but pots grouped by logical sets, roughly 50% chosen (dynamic mode)
-    - Excludes Empty Pots - All pots that had some sort of objects under them
     - Dungeon Pots - The pots that are in dungeons
     - Lottery - All pots and large blocks are in the pool"""
     display_name = "PotShuffle"
@@ -276,11 +273,8 @@ class PotShuffle(Choice):
     option_keys = 1
     option_cave = 2
     option_cavekeys = 3
-    option_reduced = 4
-    option_clustered = 5
-    option_nonempty = 6
-    option_dungeon = 7
-    option_lottery = 8
+    option_dungeon = 4
+    option_lottery = 5
 
 
 class FluteShuffle(Choice):

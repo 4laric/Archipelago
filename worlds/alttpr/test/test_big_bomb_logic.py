@@ -81,9 +81,10 @@ class TestBigBombShopOnDesertLedge(BigBombShopEntranceShuffleBase):
         self.options["test_slot_data"] = slot_data
         self.world_setup()
 
+        self.assertCanNotReachPyramidCrackWith([["Ocarina (Activated)", "Progressive Glove"], ["Magic Mirror"]])
         self.assertCanReachPyramidCrackWith([
             ["Ocarina (Activated)", "Progressive Glove", "Hammer", "Moon Pearl"],
-            ["Ocarina (Activated)", "Beat Agahnim 1"],
+            ["Ocarina (Activated)", "Progressive Glove", "Beat Agahnim 1"],
             ["Magic Mirror", "Progressive Glove", "Hammer", "Moon Pearl"],
             ["Magic Mirror", "Beat Agahnim 1"],
         ])
