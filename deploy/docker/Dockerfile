@@ -9,6 +9,33 @@ RUN go mod download
 COPY archipelago-go/ ./
 RUN go build -o /out/peliarch .
 
+# ---- stage 1b: the Elden Ring tooling, pinned ----
+# The apworld and the wizard live in a DIFFERENT repo. Vendoring them here would fork them; copying
+# them onto the box by hand is the manual step this whole file exists to delete. So they are cloned
+# at a PIN during the build, and the pin is the reproducibility boundary: the same ER_REF always
+# produces the same image, and moving it is a reviewable one-line diff rather than an ssh session.
+#
+# `tools/gf_test.py --install-only` is the ONE definition of "the installed world" -- the same entry
+# point CI and the dev box use -- so the beside-package inputs (region_map.csv, the *.tsv tables,
+# region_groups.py, the shipping yaml) cannot drift between how the host installs it and how it is
+# tested. It deliberately performs no fork check in this mode, which is why it is safe to point at
+# this repo's own tree.
+FROM python:3.12-slim-bookworm AS ertools
+ARG ER_REPO=https://github.com/4laric/er-archipelago.git
+ARG ER_REF=main
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "$ER_REF" "$ER_REPO" /er \
+ && git -C /er rev-parse HEAD > /er-rev.txt
+# The world is installed into an empty tree here and copied into /app in stage 2, so a rebuild of
+# stage 2 does not re-clone.
+RUN mkdir -p /apworld && python /er/tools/gf_test.py --install-only --ap-dir /apworld
+RUN mkdir -p /er-static \
+ && cp /er/wizard/wizard.html /er-static/wizard.html \
+ && cp /er/er-archipelago-check-browser.html /er-static/ \
+ && cp /er/er-archipelago-questline-dag.html /er-static/ 2>/dev/null || true
+
 # ---- stage 2: python runtime (web GUI + per-room MultiServer) ----
 FROM python:3.12-slim-bookworm
 WORKDIR /app
@@ -26,10 +53,17 @@ COPY . /app
 # drop in the freshly-built Go binary
 COPY --from=gobuild /out/peliarch /app/archipelago-go/peliarch
 
+# the Elden Ring apworld, into the tree /generate runs in, and the static tooling /er serves
+COPY --from=ertools /apworld/worlds/eldenring /app/worlds/eldenring
+COPY --from=ertools /er-static /er-static
+COPY --from=ertools /er-rev.txt /app/.er-rev
+
 ENV PYTHONUNBUFFERED=1 \
     DATA_DIR=/data \
     STORE_PATH=/data/rooms.json \
-    REPO_DIR=/app
+    REPO_DIR=/app \
+    AP_ROOT=/app \
+    ER_STATIC_DIR=/er-static
 
 EXPOSE 8080
 

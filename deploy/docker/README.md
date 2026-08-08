@@ -64,3 +64,75 @@ Desktop AP clients connect over `ws://PUBLIC_HOST:PORT` (what the GUI advertises
 room subprocesses a cert (share Caddy's, or a certbot DNS-challenge wildcard) via the
 orchestrator's MultiServer launch (`--cert`/`--cert_key`), and flip the GUI's advertised
 scheme. See `DEPLOY.md §9` (repo root) for the two approaches.
+
+## Elden Ring: the wizard, and generating seeds on the box
+
+`docker compose up -d` now also gives you the ER options wizard at `https://YOURDOMAIN/er/` and
+seed generation at `POST /generate`. Nothing extra to install, and nothing to copy onto the box.
+
+### Why it is a build pin and not a mount
+
+The apworld and the wizard live in a **different repository**. There were three ways to get them
+here and only one of them is reproducible:
+
+| | why not |
+|---|---|
+| vendor them into this repo | forks them; they drift the moment either side moves |
+| `rsync` them onto the box | the manual step this whole directory exists to delete |
+| **clone at a pin during the build** | same `ER_REF` always builds the same image |
+
+So `ER_REF` in `.env` is the reproducibility boundary. Shipping a new apworld or wizard is a
+one-line bump plus a rebuild — a reviewable diff, not an ssh session. The resolved commit is baked
+into the image at `/app/.er-rev`, so a running container can always answer *which* ER build it is:
+
+```bash
+docker compose exec web cat /app/.er-rev
+```
+
+The world is installed by `tools/gf_test.py --install-only`, which is the same entry point CI and
+the dev box use. That matters more than it looks: the apworld needs several files installed
+*beside* the package (`region_map.csv`, the `.tsv` tables, `region_groups.py`, the shipping yaml),
+and hand-copying the package alone produces a world that imports and then fails oddly at generation
+time. One installer, one definition, no drift.
+
+### What to set
+
+```ini
+ER_REF=main                # or a release tag for a box you care about
+GENERATE_ENABLED=1
+GENERATE_TIMEOUT=180
+GENERATE_MAX_AS_MB=2048
+GENERATE_PLANDO=           # empty = plando off
+```
+
+### 🛑 Before you expose /generate publicly
+
+Every other endpoint here takes a multidata and validates it structurally without ever unpickling
+it. `/generate` hands attacker-controlled text to a program that will follow it — an AP yaml
+carries weights, triggers and plando that steer allocation and runtime. `webgui/generator.py`
+bounds that with a wall timeout (killed by **process group**, because Generate spawns children), an
+`RLIMIT_AS` the child cannot raise, `RLIMIT_CPU`, plando off, and a size cap before a process is
+even spent.
+
+**That makes it survivable, not safe.** Two things this stack does NOT yet do:
+
+1. **No per-IP rate limit.** The base `caddy:2` image has no ratelimit module, so adding one means
+   an `xcaddy` build of Caddy with `caddyserver/ratelimit`. Until then, `/generate` is one curl loop
+   away from occupying the box's CPU. Set `GENERATE_ENABLED=0` if you are not ready for that.
+2. **Generation runs as the web container's user**, sharing the container with the orchestrator that
+   supervises live rooms. The process limits are the only thing between a hostile yaml and the
+   rooms. A separate generation container with its own CPU/memory reservation would be the real
+   fix.
+
+### Verifying a deploy without guessing
+
+```bash
+docker compose exec web cat /app/.er-rev                     # which ER build is baked in
+curl -sf https://YOURDOMAIN/er/wizard.html | head -c 40      # the wizard is served
+curl -s -H 'Accept: application/json' -X POST \
+     --data-urlencode 'yaml@my-seed.yaml' \
+     https://YOURDOMAIN/generate | jq .                      # a real seed -> a real room
+```
+
+The third one is the only check that proves the whole chain — wizard yaml, generation, room
+creation, auto-start — actually works. A green container and a served page prove neither.
