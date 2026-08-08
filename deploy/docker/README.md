@@ -79,10 +79,18 @@ here and only one of them is reproducible:
 |---|---|
 | vendor them into this repo | forks them; they drift the moment either side moves |
 | `rsync` them onto the box | the manual step this whole directory exists to delete |
-| **clone at a pin during the build** | same `ER_REF` always builds the same image |
+| **clone at a pin during the build** | an immutable `ER_REF` always builds the same image |
 
 So `ER_REF` in `.env` is the reproducibility boundary. Shipping a new apworld or wizard is a
-one-line bump plus a rebuild — a reviewable diff, not an ssh session. The resolved commit is baked
+one-line bump plus a rebuild — a reviewable diff, not an ssh session.
+
+> ⚠️ **A branch name is not a pin.** An earlier version of this section claimed "the same `ER_REF`
+> always builds the same image" without qualification. That is true of a tag or a sha and false of
+> `main`, which moves. Worse, Docker caches a `RUN` by its command string, so `git clone --branch
+> main` never re-ran once cached and the box served a wizard two merges stale through a `--build`
+> redeploy. The `ADD ${ER_API}/commits/${ER_REF}` line above fixes the staleness — the clone is now
+> invalidated exactly when the ref's target moves — but **for a box you care about, pin a tag.**
+> `main` will now track correctly; it still cannot tell you what you deployed last Tuesday. The resolved commit is baked
 into the image at `/app/.er-rev`, so a running container can always answer *which* ER build it is:
 
 ```bash

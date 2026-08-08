@@ -22,10 +22,25 @@ RUN go build -o /out/peliarch .
 # this repo's own tree.
 FROM python:3.12-slim-bookworm AS ertools
 ARG ER_REPO=https://github.com/4laric/er-archipelago.git
+ARG ER_API=https://api.github.com/repos/4laric/er-archipelago
 ARG ER_REF=main
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+
+# 🛑 CACHE BUST, AND WHY IT IS NOT OPTIONAL.
+# Docker caches a RUN by its command STRING. `git clone --branch main` is the same string every
+# build, so once it is cached it never clones again -- and a MOVING ref like `main` then silently
+# freezes at whatever it pointed to the first time. That is not a hypothetical: the box served a
+# wizard from a commit two merges old, through a `--build` redeploy, and the only reason anyone
+# noticed was fetching the live page and seeing a missing card.
+#
+# `ADD <url>` is re-fetched on EVERY build and its content decides whether downstream layers are
+# invalidated. The API's commit document for a ref contains that ref's sha, so this busts the clone
+# exactly when ER_REF's target has actually moved, and not otherwise -- a branch stays fast when it
+# has not changed, and an immutable tag or sha never re-clones at all.
+ADD ${ER_API}/commits/${ER_REF} /er-ref.json
+
 RUN git clone --depth 1 --branch "$ER_REF" "$ER_REPO" /er \
  && git -C /er rev-parse HEAD > /er-rev.txt
 # The world is installed into an empty tree here and copied into /app in stage 2, so a rebuild of
