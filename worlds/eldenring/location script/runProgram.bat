@@ -1,2 +1,0 @@
-node script.js
-pause
