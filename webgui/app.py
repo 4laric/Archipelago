@@ -28,10 +28,12 @@ import logging
 
 from flask import (
     Flask, request, redirect, url_for, render_template,
-    jsonify, abort, Response, stream_with_context,
+    jsonify, abort, Response, stream_with_context, send_from_directory,
 )
+from werkzeug.exceptions import NotFound
 
 from webgui.orchestrator import RoomManager, DEFAULT_IDLE_TIMEOUT, DEFAULT_UPLOAD_MAX_BYTES
+from webgui import generator
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,26 @@ DEFAULT_REPO_DIR    = os.environ.get("REPO_DIR",    os.path.dirname(os.path.dirn
 DEFAULT_PORT_START  = int(os.environ.get("PORT_START", "38400"))
 DEFAULT_PORT_END    = int(os.environ.get("PORT_END",   "38600"))
 LOG_TAIL_LINES      = int(os.environ.get("LOG_TAIL_LINES", "200"))
+
+# Seed generation. AP_ROOT is the checkout generation runs in -- the pinned deploy tree with the
+# apworlds installed. It defaults to the repo this app ships inside, which is right for the box and
+# for the tests, and is overridable so a staging pin can be pointed at without a redeploy.
+AP_ROOT             = os.environ.get("AP_ROOT", DEFAULT_REPO_DIR)
+GENERATE_ENABLED    = os.environ.get("GENERATE_ENABLED", "1") not in ("0", "false", "False")
+GENERATE_TIMEOUT    = int(os.environ.get("GENERATE_TIMEOUT", str(generator.DEFAULT_TIMEOUT_SECONDS)))
+GENERATE_MAX_AS_MB  = int(os.environ.get("GENERATE_MAX_AS_MB", str(generator.DEFAULT_MAX_ADDRESS_SPACE_MB)))
+GENERATE_PLANDO     = os.environ.get("GENERATE_PLANDO", generator.DEFAULT_PLANDO)
+
+# Static tooling served under /er -- the Elden Ring options wizard and the check browser. They are
+# single-file HTML pages built in the er-archipelago repo, NOT vendored here; a deploy copies them
+# into ER_STATIC_DIR. Unset (or a missing dir) = the routes 404 and nothing else changes.
+#
+# 🛑 SERVING THEM IS WHAT MAKES THE WIZARD'S "Generate & host" BUTTON POSSIBLE AT ALL. That button
+# is same-origin only on purpose: from a file:// page the origin is `null`, so a cross-origin POST
+# would either fail CORS or force Access-Control-Allow-Origin: * onto /generate, the one endpoint
+# that spends CPU on a stranger's input. Served from here, it is a same-origin POST and no CORS
+# policy exists to get wrong.
+ER_STATIC_DIR = os.environ.get("ER_STATIC_DIR", "")
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +163,21 @@ def create_app(manager: RoomManager = None) -> Flask:
     # API: rooms collection
     # ------------------------------------------------------------------
 
+    @app.route("/er/")
+    @app.route("/er/<path:filename>")
+    def er_static(filename: str = "wizard.html"):
+        """Serve the Elden Ring wizard / check browser from ER_STATIC_DIR.
+
+        `send_from_directory` resolves against the base and refuses to escape it, so `..` in the URL
+        is handled by Flask rather than by a hand-rolled check here.
+        """
+        if not ER_STATIC_DIR or not os.path.isdir(ER_STATIC_DIR):
+            return jsonify(error="No ER tooling deployed on this host (set ER_STATIC_DIR)"), 404
+        try:
+            return send_from_directory(ER_STATIC_DIR, filename)
+        except NotFound:
+            return jsonify(error=f"No such file: {filename}"), 404
+
     @app.route("/rooms", methods=["POST"])
     def create_room():
         """Upload .archipelago and create a room."""
@@ -184,6 +221,84 @@ def create_app(manager: RoomManager = None) -> Flask:
 
         if _wants_json():
             return jsonify(room_summary(room)), 201
+        return redirect(url_for("room_page", room_id=room.id))
+
+    @app.route("/generate", methods=["POST"])
+    def generate_and_host():
+        """yaml in, running room out -- the stage that used to happen on the player's own machine.
+
+        Accepts either a `yaml` form field (what the options wizard POSTs) or one-or-more uploaded
+        `file` parts (a multiworld's player files). On success it does exactly what /rooms does with
+        an upload, because the generated seed IS an upload as far as the orchestrator is concerned:
+        create the room, auto-start it, hand back the connect address.
+
+        🛑 This is the one endpoint on the site that runs a program over text a stranger wrote.
+        webgui/generator.py holds that line -- wall timeout, RLIMIT_AS/CPU, process-group kill,
+        plando off. Do not move generation in-process to save a fork; the fork IS the boundary.
+        """
+        if not GENERATE_ENABLED:
+            return jsonify(error="Seed generation is disabled on this host"), 503
+
+        yamls = []
+        for f in request.files.getlist("file"):
+            if f.filename:
+                yamls.append(f.read())
+        text = request.form.get("yaml")
+        if text:
+            yamls.append(text.encode("utf-8"))
+        if not yamls:
+            return jsonify(error="No yaml supplied (form field 'yaml', or file parts named 'file')"), 400
+
+        try:
+            generator.validate_yamls(yamls)
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+
+        seed_arg = request.form.get("seed")
+        try:
+            result = generator.generate(
+                yamls, AP_ROOT,
+                seed=int(seed_arg) if seed_arg else None,
+                plando=GENERATE_PLANDO,
+                timeout=GENERATE_TIMEOUT,
+                max_address_space_mb=GENERATE_MAX_AS_MB,
+            )
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        except generator.GenerationError as e:
+            # 504 for "it ran too long", 422 for "your yaml does not generate" -- a caller needs to
+            # tell "try again" apart from "fix your options", and both are the user's fault, not a 500.
+            code = 504 if e.timed_out else 422
+            return jsonify(error=str(e), detail=e.detail), code
+        except Exception as e:
+            logger.exception("generate failed")
+            return jsonify(error=str(e)), 500
+
+        name         = (request.form.get("name") or result.filename).strip()
+        password     = request.form.get("password") or None
+        tier         = request.form.get("tier", "Standard")
+        idle_timeout = int(request.form.get("idle_timeout", DEFAULT_IDLE_TIMEOUT))
+
+        try:
+            room = mgr().create_room(
+                name=name, file_data=result.data, filename=result.filename,
+                password=password, idle_timeout=idle_timeout, tier=tier,
+            )
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        except Exception as e:
+            logger.exception("create_room after generate failed")
+            return jsonify(error=str(e)), 500
+
+        try:
+            room = mgr().start_room(room.id)
+        except Exception as e:
+            logger.warning("Auto-start failed for generated room %s: %s", room.id, e)
+
+        if _wants_json():
+            body = room_summary(room)
+            body["seed_file"] = result.filename
+            return jsonify(body), 201
         return redirect(url_for("room_page", room_id=room.id))
 
     @app.route("/rooms", methods=["GET"])
