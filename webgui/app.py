@@ -136,6 +136,12 @@ def create_app(manager: RoomManager = None) -> Flask:
             rooms=rooms,
             public_host=host,
             donation_url=app.config["DONATION_URL"],
+            # The dashboard advertises generation only when this box can actually do it. A link to
+            # /er/ on a host with no ER tooling deployed is a 404 with extra steps, and "hosting
+            # only" is the honest copy there -- so the template asks, rather than assuming.
+            can_generate=bool(GENERATE_ENABLED and AP_ROOT and os.path.isfile(
+                os.path.join(AP_ROOT, "Generate.py"))),
+            er_tooling=bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
         )
 
     @app.route("/room/<room_id>")

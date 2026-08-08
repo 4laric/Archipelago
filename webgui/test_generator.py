@@ -403,3 +403,52 @@ class TestErStatic:
             r = client.get(attempt)
             assert r.status_code in (301, 308, 404), (attempt, r.status_code)
             assert b"do not serve me" not in r.data, f"{attempt} escaped ER_STATIC_DIR"
+
+
+# ---------------------------------------------------------------------------
+# The dashboard only advertises what this box can actually do
+# ---------------------------------------------------------------------------
+
+class TestDashboardAdvertisesHonestly:
+    """A link to /er/ on a host without the ER tooling is a 404 with extra steps, and telling a
+    visitor they can build a seed here when GENERATE_ENABLED=0 is worse. The template asks rather
+    than assuming, and this pins both directions -- an "it should be obvious" that was in fact
+    wrong on the live site for a day, which said "hosting only" while /generate was serving.
+    """
+
+    def _client(self, monkeypatch, *, er_dir="", generate=True, ap_root=""):
+        import webgui.app as appmod
+        monkeypatch.setattr(appmod, "ER_STATIC_DIR", er_dir)
+        monkeypatch.setattr(appmod, "GENERATE_ENABLED", generate)
+        monkeypatch.setattr(appmod, "AP_ROOT", ap_root)
+        app = appmod.create_app(manager=_Mgr())
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    def test_offers_the_wizard_when_the_tooling_is_deployed(self, tmp_path, monkeypatch):
+        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
+        html = self._client(monkeypatch, er_dir=str(tmp_path)).get("/").data.decode()
+        assert "/er/" in html and "options wizard" in html.lower()
+
+    def test_stays_quiet_about_the_wizard_when_it_is_not(self, monkeypatch):
+        html = self._client(monkeypatch, er_dir="").get("/").data.decode()
+        assert "/er/" not in html
+
+    def test_does_not_claim_generation_without_an_ap_tree(self, tmp_path, monkeypatch):
+        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
+        html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path)).get("/").data.decode()
+        assert "starts the room here" not in html, \
+            "no Generate.py at AP_ROOT, so the box cannot generate -- do not advertise it"
+
+    def test_claims_generation_when_it_really_can(self, tmp_path, monkeypatch):
+        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
+        (tmp_path / "Generate.py").write_text("# real enough", encoding="utf-8")
+        html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path)).get("/").data.decode()
+        assert "starts the room here" in html
+
+    def test_generation_switched_off_is_not_advertised(self, tmp_path, monkeypatch):
+        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
+        (tmp_path / "Generate.py").write_text("#", encoding="utf-8")
+        html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path),
+                            generate=False).get("/").data.decode()
+        assert "starts the room here" not in html
