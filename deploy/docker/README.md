@@ -122,15 +122,24 @@ bounds that with a wall timeout (killed by **process group**, because Generate s
 `RLIMIT_AS` the child cannot raise, `RLIMIT_CPU`, plando off, and a size cap before a process is
 even spent.
 
-**That makes it survivable, not safe.** Two things this stack does NOT yet do:
+**That makes it survivable, not safe.**
 
-1. **No per-IP rate limit.** The base `caddy:2` image has no ratelimit module, so adding one means
-   an `xcaddy` build of Caddy with `caddyserver/ratelimit`. Until then, `/generate` is one curl loop
-   away from occupying the box's CPU. Set `GENERATE_ENABLED=0` if you are not ready for that.
-2. **Generation runs as the web container's user**, sharing the container with the orchestrator that
-   supervises live rooms. The process limits are the only thing between a hostile yaml and the
-   rooms. A separate generation container with its own CPU/memory reservation would be the real
-   fix.
+**Rate limiting is now in place** (as of the ratelimit PR): Caddy is built from
+`deploy/docker/Caddyfile.Dockerfile` with `github.com/mholt/caddy-ratelimit` compiled in, and
+`/generate` is capped per client IP — `GENERATE_RATE_EVENTS` per `GENERATE_RATE_WINDOW`, default
+3/min, with IPv6 clients bucketed by `/64`. This lives in Caddy rather than Flask on purpose: there
+is one gunicorn worker, so an in-app limiter competes for the very thread it is protecting.
+
+> ⚠️ That replaces the official `caddy:2` image with a locally compiled binary carrying a
+> **third-party module** — its own README says it is "not an official repository of the Caddy Web
+> Server organization" — on the box that terminates TLS. A deliberate trade against an unlimited
+> `/generate`, with both the Caddy version and the module version **pinned** for exactly that
+> reason. A floating `@latest` on a component in this position would be the real mistake.
+
+**Still not done:** generation runs as the web container's user, sharing the container with the
+orchestrator that supervises live rooms. The process limits are the only thing between a hostile
+yaml and those rooms. A separate generation container with its own CPU/memory reservation is the
+remaining fix.
 
 ### Verifying a deploy without guessing
 

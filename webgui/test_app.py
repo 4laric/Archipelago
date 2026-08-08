@@ -364,10 +364,17 @@ class TestGetRoom:
 class TestDashboard:
 
     def test_dashboard_loads(self, client):
+        """Renders, and carries the product's own name.
+
+        This asserted "GoArchipelago" until 2026-08-08 and had been failing for as long as the
+        product has been called Peliarch -- a permanently-red test, which is worse than no test:
+        it trains everyone to read a red suite as normal. Same rot as the wizard's lint rules,
+        one repo over.
+        """
         resp = client.get("/")
         assert resp.status_code == 200
         html = resp.data.decode()
-        assert "GoArchipelago" in html
+        assert "Peliarch" in html
 
     def test_dashboard_has_donation_link(self, client):
         resp = client.get("/")

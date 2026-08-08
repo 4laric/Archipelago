@@ -41,11 +41,18 @@ services:
       retries: 3                     # ~3 min unresponsive before autoheal acts
 
   caddy:
-    image: caddy:2
+    # NOT `image: caddy:2`. Rate limiting is not in stock Caddy -- it needs
+    # github.com/mholt/caddy-ratelimit compiled in, which means an xcaddy build.
+    # See deploy/docker/Caddyfile.Dockerfile for what that pulls in and the trade-off.
+    build:
+      context: .
+      dockerfile: Caddyfile.Dockerfile
     depends_on: [web]
     environment:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:-}
+      GENERATE_RATE_EVENTS: ${GENERATE_RATE_EVENTS:-3}
+      GENERATE_RATE_WINDOW: ${GENERATE_RATE_WINDOW:-1m}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

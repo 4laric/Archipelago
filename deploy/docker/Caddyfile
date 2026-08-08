@@ -7,6 +7,37 @@
 # {$DOMAIN} can be a real hostname (auto-HTTPS) or ":80" for a local/no-TLS test.
 {$DOMAIN} {
 	encode zstd gzip
+
+	# ---- /generate is the only endpoint that runs a program over a stranger's text ----
+	# webgui/generator.py bounds a SINGLE generation (wall timeout, RLIMIT_AS/CPU, plando off,
+	# process-group kill). It cannot bound the ARRIVAL RATE: a loop of valid yamls is a loop of
+	# valid, individually-limited generations, and the box still ends up with its CPU spoken for.
+	# That is the gap this closes, and it belongs here rather than in Flask -- one gunicorn worker
+	# means an in-app limiter competes for the very thread it is trying to protect.
+	#
+	# Sliding window, keyed per client IP. GENERATE_RATE_EVENTS/WINDOW are set in .env; the
+	# defaults (3 per minute) are shaped by the measurement, not picked round: a real solo seed
+	# takes ~1.5-3 s, so 3/min leaves the box ~95% idle even with a client at the ceiling, while
+	# still being more generations than any human wizard user will ask for.
+	@generate path /generate
+	rate_limit {
+		zone generate {
+			match {
+				path /generate
+			}
+			key    {remote_host}
+			events {$GENERATE_RATE_EVENTS:3}
+			window {$GENERATE_RATE_WINDOW:1m}
+			# An IPv6 client owns a /64 and can walk it to defeat a per-address limit. Bucket by
+			# network so the limit means "one player" rather than "one address they happen to use".
+			ipv6_prefix 64
+		}
+	}
+	handle_errors {
+		@429 expression {http.error.status_code} == 429
+		respond @429 "Too many generation requests. Seeds take a few seconds each; try again shortly." 429
+	}
+
 	reverse_proxy web:8080
 }
 
