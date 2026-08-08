@@ -28,8 +28,9 @@ import logging
 
 from flask import (
     Flask, request, redirect, url_for, render_template,
-    jsonify, abort, Response, stream_with_context,
+    jsonify, abort, Response, stream_with_context, send_from_directory,
 )
+from werkzeug.exceptions import NotFound
 
 from webgui.orchestrator import RoomManager, DEFAULT_IDLE_TIMEOUT, DEFAULT_UPLOAD_MAX_BYTES
 from webgui import generator
@@ -59,6 +60,17 @@ GENERATE_ENABLED    = os.environ.get("GENERATE_ENABLED", "1") not in ("0", "fals
 GENERATE_TIMEOUT    = int(os.environ.get("GENERATE_TIMEOUT", str(generator.DEFAULT_TIMEOUT_SECONDS)))
 GENERATE_MAX_AS_MB  = int(os.environ.get("GENERATE_MAX_AS_MB", str(generator.DEFAULT_MAX_ADDRESS_SPACE_MB)))
 GENERATE_PLANDO     = os.environ.get("GENERATE_PLANDO", generator.DEFAULT_PLANDO)
+
+# Static tooling served under /er -- the Elden Ring options wizard and the check browser. They are
+# single-file HTML pages built in the er-archipelago repo, NOT vendored here; a deploy copies them
+# into ER_STATIC_DIR. Unset (or a missing dir) = the routes 404 and nothing else changes.
+#
+# 🛑 SERVING THEM IS WHAT MAKES THE WIZARD'S "Generate & host" BUTTON POSSIBLE AT ALL. That button
+# is same-origin only on purpose: from a file:// page the origin is `null`, so a cross-origin POST
+# would either fail CORS or force Access-Control-Allow-Origin: * onto /generate, the one endpoint
+# that spends CPU on a stranger's input. Served from here, it is a same-origin POST and no CORS
+# policy exists to get wrong.
+ER_STATIC_DIR = os.environ.get("ER_STATIC_DIR", "")
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +162,21 @@ def create_app(manager: RoomManager = None) -> Flask:
     # ------------------------------------------------------------------
     # API: rooms collection
     # ------------------------------------------------------------------
+
+    @app.route("/er/")
+    @app.route("/er/<path:filename>")
+    def er_static(filename: str = "wizard.html"):
+        """Serve the Elden Ring wizard / check browser from ER_STATIC_DIR.
+
+        `send_from_directory` resolves against the base and refuses to escape it, so `..` in the URL
+        is handled by Flask rather than by a hand-rolled check here.
+        """
+        if not ER_STATIC_DIR or not os.path.isdir(ER_STATIC_DIR):
+            return jsonify(error="No ER tooling deployed on this host (set ER_STATIC_DIR)"), 404
+        try:
+            return send_from_directory(ER_STATIC_DIR, filename)
+        except NotFound:
+            return jsonify(error=f"No such file: {filename}"), 404
 
     @app.route("/rooms", methods=["POST"])
     def create_room():

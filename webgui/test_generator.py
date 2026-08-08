@@ -343,3 +343,63 @@ def test_real_generate_smoke():
         raise
     assert got.data[:2] == b"PK", "output is not a zip"
     assert len(got.data) > 1024
+
+
+# ---------------------------------------------------------------------------
+# /er static tooling -- the thing that makes the wizard's host button reachable
+# ---------------------------------------------------------------------------
+
+class TestErStatic:
+    """The wizard is served from HERE or its Generate & host button cannot exist.
+
+    That button is same-origin only by design (a file:// page has a `null` origin, and the
+    alternative is `Access-Control-Allow-Origin: *` on the one endpoint that spends CPU on a
+    stranger's input). So "is the wizard served same-origin" is a functional requirement, not a
+    convenience, and it gets tests.
+    """
+
+    def _client(self, monkeypatch, static_dir):
+        import webgui.app as appmod
+        monkeypatch.setattr(appmod, "ER_STATIC_DIR", static_dir)
+        app = appmod.create_app(manager=_Mgr())
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    def test_serves_the_wizard(self, tmp_path, monkeypatch):
+        (tmp_path / "wizard.html").write_text("<h1>wizard</h1>", encoding="utf-8")
+        r = self._client(monkeypatch, str(tmp_path)).get("/er/wizard.html")
+        assert r.status_code == 200
+        assert b"wizard" in r.data
+
+    def test_bare_er_is_the_wizard(self, tmp_path, monkeypatch):
+        (tmp_path / "wizard.html").write_text("<h1>wizard</h1>", encoding="utf-8")
+        r = self._client(monkeypatch, str(tmp_path)).get("/er/")
+        assert r.status_code == 200
+        assert b"wizard" in r.data
+
+    def test_serves_the_check_browser_too(self, tmp_path, monkeypatch):
+        (tmp_path / "er-archipelago-check-browser.html").write_text("checks", encoding="utf-8")
+        r = self._client(monkeypatch, str(tmp_path)).get("/er/er-archipelago-check-browser.html")
+        assert r.status_code == 200
+
+    def test_missing_file_is_a_404_not_a_500(self, tmp_path, monkeypatch):
+        r = self._client(monkeypatch, str(tmp_path)).get("/er/nope.html")
+        assert r.status_code == 404
+
+    def test_unconfigured_host_says_so(self, monkeypatch):
+        r = self._client(monkeypatch, "").get("/er/wizard.html")
+        assert r.status_code == 404
+        assert "ER_STATIC_DIR" in r.get_json()["error"]
+
+    def test_cannot_escape_the_static_dir(self, tmp_path, monkeypatch):
+        """A traversal must not reach the room store, the AP tree, or anything else on the box."""
+        secret = tmp_path / "secret.txt"
+        secret.write_text("do not serve me", encoding="utf-8")
+        static = tmp_path / "static"
+        static.mkdir()
+        (static / "wizard.html").write_text("ok", encoding="utf-8")
+        client = self._client(monkeypatch, str(static))
+        for attempt in ("/er/../secret.txt", "/er/..%2fsecret.txt", "/er/%2e%2e/secret.txt"):
+            r = client.get(attempt)
+            assert r.status_code in (301, 308, 404), (attempt, r.status_code)
+            assert b"do not serve me" not in r.data, f"{attempt} escaped ER_STATIC_DIR"
