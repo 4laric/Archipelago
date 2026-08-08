@@ -1,0 +1,49 @@
+[ramp] connecting 124 slots over 30.0s
+[ramp] 124/124 connected; refused=0 errors=0
+[soak] 120.0s @ 1.0 checks/client/s
+[soak] checks_sent=3100 items_recv=3125
+[fanout] 37 subscribers, 2 setters, 20.0s
+[fanout] samples=97951
+
+===== RESULTS =====
+{
+  "config": {
+    "slots": 125,
+    "live": 124,
+    "check_rate": 1.0,
+    "soak_seconds": 120.0,
+    "tracker_fraction": 0.3
+  },
+  "loop_health_probe_rtt_ms": {
+    "p50": 112.44,
+    "p95": 301.55,
+    "p99": 561.71,
+    "max": 744.12,
+    "n": 115
+  },
+  "routing_latency_ms": {
+    "p50": 114.37,
+    "p95": 118.85,
+    "p99": 119.28,
+    "n": 25
+  },
+  "fanout_latency_ms": {
+    "p50": 334.87,
+    "p95": 714.24,
+    "p99": 950.08,
+    "n": 97951
+  },
+  "reconnect": {
+    "time_to_connected_ms_p95": null,
+    "backlog_items_p95": null,
+    "n": 0
+  },
+  "throughput": {
+    "checks_sent": 3100,
+    "items_recv": 3125
+  },
+  "errors": 0,
+  "refused": 0
+}
+
+wrote C:\Users\alari\Documents\Archipelago\go_ceiling_results\r2000_20260629_165744_g11.json (includes per-tick timeseries for plotting lag/RSS/CPU)

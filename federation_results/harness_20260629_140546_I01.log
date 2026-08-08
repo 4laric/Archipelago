@@ -1,0 +1,51 @@
+[ramp] connecting 29 slots over 30.0s
+[ramp] 29/29 connected; refused=0 errors=0
+[soak] 30.0s @ 1.0 checks/client/s
+[soak] checks_sent=725 items_recv=680
+[fanout] 8 subscribers, 1 setters, 20.0s
+[fanout] samples=776
+[reconnect] dropping 7 and rejoining simultaneously
+[reconnect] reconnect samples=7
+
+===== RESULTS =====
+{
+  "config": {
+    "slots": 30,
+    "live": 29,
+    "check_rate": 1.0,
+    "soak_seconds": 30.0,
+    "tracker_fraction": 0.3
+  },
+  "loop_health_probe_rtt_ms": {
+    "p50": 1.38,
+    "p95": 2.13,
+    "p99": 18.38,
+    "max": 54.61,
+    "n": 158
+  },
+  "routing_latency_ms": {
+    "p50": 79.71,
+    "p95": 118.04,
+    "p99": 126.64,
+    "n": 680
+  },
+  "fanout_latency_ms": {
+    "p50": 2.36,
+    "p95": 4.39,
+    "p99": 7.22,
+    "n": 776
+  },
+  "reconnect": {
+    "time_to_connected_ms_p95": 2073.43,
+    "backlog_items_p95": 164.0,
+    "n": 7
+  },
+  "throughput": {
+    "checks_sent": 725,
+    "items_recv": 844
+  },
+  "errors": 0,
+  "refused": 0
+}
+
+wrote C:\Users\alari\Documents\Archipelago\federation_results\results_20260629_140546_I01.json (includes per-tick timeseries for plotting lag/RSS/CPU)

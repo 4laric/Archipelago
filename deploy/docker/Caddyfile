@@ -1,0 +1,25 @@
+# Fronts ONLY the website (path-based). Game rooms are reached directly on their
+# own ports (ws://host:PORT) — see deploy/docker/README.md §wss for adding TLS there.
+{
+	email {$ACME_EMAIL}
+}
+
+# {$DOMAIN} can be a real hostname (auto-HTTPS) or ":80" for a local/no-TLS test.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:8080
+}
+
+# ---- redirect the old domain to the main site ----
+# {uri} carries the path AND query string through, so birdfuck.ca/room/abc?x=1
+# lands on peliarch.ca/room/abc?x=1 rather than dumping everyone on the homepage.
+#
+# PREREQUISITE: birdfuck.ca and www.birdfuck.ca need A records pointing at THIS box.
+# Caddy proves ownership over HTTP-01, so the challenge has to reach this server or
+# cert issuance fails and the domain will not serve at all.
+#
+# 302 = temporary, deliberately. Browsers cache a 301 near-permanently and ignore you
+# if you change your mind, so verify the redirect behaves, then swap 302 → permanent.
+birdfuck.ca, www.birdfuck.ca {
+	redir https://{$DOMAIN}{uri} 302
+}

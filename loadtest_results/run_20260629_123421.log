@@ -1,0 +1,25 @@
+[runner] run_id=20260629_123421
+[runner] checkout=C:\Users\alari\Documents\Archipelago
+[runner] game=ChecksFinder  version=0,6,6  spoiler=0  rungs=[100, 250, 500, 1000]  max_slots=1000
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\gen_yamls.py --count 1000 --game ChecksFinder --prefix P --digits 4 --out C:\Users\alari\Documents\Archipelago\loadtest_players
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\Generate.py --player_files_path C:\Users\alari\Documents\Archipelago\loadtest_players --outputpath C:\Users\alari\Documents\Archipelago\loadtest_out --spoiler 0
+[runner] multidata=C:\Users\alari\Documents\Archipelago\loadtest_out\AP_48022055457854520154.zip
+[runner] === rung 100 slots on port 38281 ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\MultiServer.py C:\Users\alari\Documents\Archipelago\loadtest_out\AP_48022055457854520154.zip --port 38281 --host 0.0.0.0
+[runner] server launch pid=39972  sampling pid=4228  (resolved real listener)
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 100 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,6 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_100.json --server-pid 4228
+[runner] === rung 250 slots on port 38281 ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\MultiServer.py C:\Users\alari\Documents\Archipelago\loadtest_out\AP_48022055457854520154.zip --port 38281 --host 0.0.0.0
+[runner] server launch pid=2308  sampling pid=11792  (resolved real listener)
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 250 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,6 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_250.json --server-pid 11792
+[runner] === rung 500 slots on port 38281 ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\MultiServer.py C:\Users\alari\Documents\Archipelago\loadtest_out\AP_48022055457854520154.zip --port 38281 --host 0.0.0.0
+[runner] server launch pid=30164  sampling pid=15380  (resolved real listener)
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 500 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,6 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_500.json --server-pid 15380
+[runner] === rung 1000 slots on port 38281 ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\MultiServer.py C:\Users\alari\Documents\Archipelago\loadtest_out\AP_48022055457854520154.zip --port 38281 --host 0.0.0.0
+[runner] server launch pid=23368  sampling pid=31664  (resolved real listener)
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\ap_loadtest.py --host localhost --port 38281 --slots 1000 --slot-prefix P --slot-digits 4 --game ChecksFinder --version 0,6,6 --ramp-seconds 30.0 --soak-seconds 180.0 --check-rate 1.0 --tracker-fraction 0.3 --reconnect-fraction 0.25 --out C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_1000.json --server-pid 31664
+[runner] === sweep comparison ===
+[runner] $ C:\Users\alari\Documents\Archipelago\.venv\Scripts\python.exe C:\Users\alari\Documents\Archipelago\sweep_compare.py C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_100.json C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_250.json C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_500.json C:\Users\alari\Documents\Archipelago\loadtest_results\results_20260629_123421_1000.json
+[runner] done. results stamped run_id=20260629_123421 in C:\Users\alari\Documents\Archipelago\loadtest_results

@@ -1,0 +1,76 @@
+[ramp] connecting 499 slots over 30.0s
+[ramp] 498/499 connected; refused=0 errors=1
+[soak] 120.0s @ 1.0 checks/client/s
+[soak] checks_sent=12450 items_recv=12410
+[fanout] 149 subscribers, 9 setters, 20.0s
+Traceback (most recent call last):
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\windows_events.py", line 463, in finish_socket_func
+    return ov.getresult()
+           ~~~~~~~~~~~~^^
+OSError: [WinError 64] The specified network name is no longer available
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 953, in transfer_data
+    message = await self.read_message()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1023, in read_message
+    frame = await self.read_data_frame(max_size=self.max_size)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1098, in read_data_frame
+    frame = await self.read_frame(max_size)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 1155, in read_frame
+    frame = await Frame.read(
+            ^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\framing.py", line 100, in read
+    data = await reader(length)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\streams.py", line 769, in readexactly
+    await self._wait_for_data('readexactly')
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\streams.py", line 539, in _wait_for_data
+    await self._waiter
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\proactor_events.py", line 286, in _loop_reading
+    length = fut.result()
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\windows_events.py", line 807, in _poll
+    value = callback(transferred, key, ov)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\windows_events.py", line 467, in finish_socket_func
+    raise ConnectionResetError(*exc.args)
+ConnectionResetError: [WinError 64] The specified network name is no longer available
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\alari\Documents\Archipelago\ap_loadtest.py", line 406, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\alari\Documents\Archipelago\ap_loadtest.py", line 402, in main
+    asyncio.run(run(args))
+    ~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\runners.py", line 196, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\runners.py", line 119, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\asyncio\base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\alari\Documents\Archipelago\ap_loadtest.py", line 309, in run
+    await asyncio.gather(*(setdriver(c) for c in setters))
+  File "C:\Users\alari\Documents\Archipelago\ap_loadtest.py", line 307, in setdriver
+    await c.set_key(key)
+  File "C:\Users\alari\Documents\Archipelago\ap_loadtest.py", line 156, in set_key
+    await self._send({"cmd": "Set", "key": key, "default": 0, "want_reply": True,
+                      "operations": [{"operation": "replace", "value": self.loop.time()}]})
+  File "C:\Users\alari\Documents\Archipelago\ap_loadtest.py", line 99, in _send
+    await self.ws.send(json.dumps(list(cmds)))
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 628, in send
+    await self.ensure_open()
+  File "C:\Users\alari\Documents\Archipelago\.venv\Lib\site-packages\websockets\legacy\protocol.py", line 929, in ensure_open
+    raise self.connection_closed_exc()
+websockets.exceptions.ConnectionClosedError: no close frame received or sent
