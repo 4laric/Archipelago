@@ -1,4 +1,4 @@
-# AP single-room scaling harness
+s# AP single-room scaling harness
 
 Find the breakpoint for **one large Archipelago room** (toward ~1000 slots) — the
 streamer community-sync case. This drives a real, unmodified `MultiServer.py` over
