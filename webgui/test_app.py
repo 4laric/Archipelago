@@ -646,3 +646,54 @@ class TestPortIsListening:
                 srv.accept()          # nothing queued == nothing connected
         finally:
             srv.close()
+
+
+# ---------------------------------------------------------------------------
+# Test: the deploy image installs what this app actually imports
+# ---------------------------------------------------------------------------
+
+HOST_REQS = os.path.join(REPO_DIR, "deploy", "docker", "requirements-host.txt")
+
+
+class TestHostRequirementsCoverOurImports:
+    """`deploy/docker/requirements-host.txt` is a HAND-CURATED subset of AP's root
+    requirements, and the deploy image installs that file and nothing else. Anything this
+    app imports has to be named in it, or the box runs without it."""
+
+    @pytest.mark.parametrize("module", ["psutil", "flask"])
+    def test_declared(self, module):
+        if not os.path.exists(HOST_REQS):
+            pytest.skip("deploy/docker/requirements-host.txt not present")
+        with open(HOST_REQS) as fh:
+            declared = [ln.split("#")[0].strip().lower() for ln in fh]
+        assert any(d.startswith(module) for d in declared if d), (
+            f"{module} is imported by the webgui but missing from requirements-host.txt"
+        )
+
+
+class TestHealthDegradesWithoutPsutil:
+    """psutil is optional in the code and was missing from the deploy image, so the health
+    card silently reported null CPU/RSS. Pin BOTH arms so the difference is visible rather
+    than looking like 'the card is just like that'."""
+
+    def test_null_when_psutil_is_unavailable(self):
+        import importlib
+        import webgui.orchestrator as orch
+        real = sys.modules.get("psutil")
+        sys.modules["psutil"] = None          # make `import psutil` raise ImportError
+        try:
+            importlib.reload(orch)
+            assert orch.room_cpu_rss(os.getpid()) == (None, None)
+            assert orch.resolve_server_pid(1234, 9, timeout=0.1) == 1234
+        finally:
+            if real is None:
+                sys.modules.pop("psutil", None)
+            else:
+                sys.modules["psutil"] = real
+            importlib.reload(orch)
+
+    def test_numbers_when_psutil_is_available(self):
+        pytest.importorskip("psutil")
+        import webgui.orchestrator as orch
+        cpu, rss = orch.room_cpu_rss(os.getpid())
+        assert cpu is not None and rss is not None and rss > 0
