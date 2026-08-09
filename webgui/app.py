@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DONATION_URL = os.environ.get(
-    "DONATION_URL", "https://buymeacoffee.com/your-handle"
+    "DONATION_URL", "https://buymeacoffee.com/fazuzu"
 )
 
 # Contact details rendered into the header/footer of every page. A Discord handle is not a
