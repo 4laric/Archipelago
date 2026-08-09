@@ -236,6 +236,12 @@
       border-top: 1px solid #1a1d27;
     }
     footer a { color: #7c6af7; text-decoration: none; }
+    footer .sep { color: #2d3148; margin: 0 0.5rem; }
+    footer code {
+      background: #1a1d27; color: #a78bfa; padding: 0.1rem 0.35rem;
+      border-radius: 4px; font-size: 0.78rem;
+    }
+    footer .copy-btn { padding: 0.1rem 0.4rem; font-size: 0.7rem; margin-left: 0.3rem; }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -245,6 +251,7 @@
   <a class="brand" href="/">Peli<span>arch</span></a>
   <nav>
     <a href="/">Dashboard</a>
+    <a href="#contact">Contact</a>
     <a class="donate-link" href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
   </nav>
 </header>
@@ -253,9 +260,20 @@
   {% block content %}{{ content|safe if content is defined else "" }}{% endblock %}
 </main>
 
-<footer>
-  Peliarch — self-host edition &nbsp;·&nbsp;
+<footer id="contact">
+  Peliarch — self-host edition
+  <span class="sep">·</span>
   <a href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">Support the project ☕</a>
+  {% if contact_github %}
+  <span class="sep">·</span>
+  <a href="{{ contact_github }}" target="_blank" rel="noopener noreferrer">Source &amp; issues</a>
+  {% endif %}
+  {% if contact_discord %}
+  <span class="sep">·</span>
+  Questions or a broken seed? Discord <code>{{ contact_discord }}</code><button
+    class="copy-btn" type="button"
+    onclick="copyText('{{ contact_discord }}', this)">Copy</button>
+  {% endif %}
 </footer>
 
 <script>
