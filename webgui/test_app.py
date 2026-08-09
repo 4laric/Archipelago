@@ -29,7 +29,7 @@ if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 
 from webgui.orchestrator import Room, validate_archipelago_upload
-from webgui.app import create_app, DONATION_URL
+from webgui.app import create_app, DONATION_URL, CONTACT_DISCORD, CONTACT_GITHUB
 
 
 # ---------------------------------------------------------------------------
@@ -572,3 +572,77 @@ class TestDonationLink:
         resp = client.get("/")
         html = resp.data.decode()
         assert "coffee" in html.lower()
+
+
+# ---------------------------------------------------------------------------
+# Test: contact details on every page
+# ---------------------------------------------------------------------------
+
+class TestContactDetails:
+    """The footer is chrome, so it must appear on EVERY page without the view
+    remembering to pass it. These tests are the reason the values come from a context
+    processor rather than a render_template kwarg: they hit two unrelated views."""
+
+    @pytest.mark.parametrize("path", ["/", "ROOM"])
+    def test_contact_on_every_page(self, client, room_id, path):
+        html = client.get("/" if path == "/" else f"/room/{room_id}").data.decode()
+        assert CONTACT_DISCORD in html, f"{path} is missing the Discord handle"
+        assert CONTACT_GITHUB in html, f"{path} is missing the source link"
+
+    def test_discord_handle_is_not_rendered_as_a_link(self, client):
+        """A Discord handle has no profile URL. Rendering it as an <a href> would ship a
+        dead link on every page, which is worse than plain text."""
+        html = client.get("/").data.decode()
+        assert f'href="{CONTACT_DISCORD}"' not in html
+        assert f"<code>{CONTACT_DISCORD}</code>" in html
+
+    def test_donation_still_present_after_moving_to_context_processor(self, client, room_id):
+        """Guards the refactor itself: donation_url stopped being a kwarg on three
+        render_template calls, so prove the processor actually feeds them."""
+        for html in (client.get("/").data.decode(),
+                     client.get(f"/room/{room_id}").data.decode()):
+            assert DONATION_URL in html
+
+
+# ---------------------------------------------------------------------------
+# Test: the liveness probe opens no connection
+# ---------------------------------------------------------------------------
+
+class TestPortIsListening:
+    """`/health` runs this on a 5 s timer per open room page. The previous
+    connect-and-close implementation made `websockets` log
+    `connection rejected (400 Bad Request)` on every single poll."""
+
+    def test_true_for_a_listening_port(self):
+        import socket as _s
+        from webgui.orchestrator import port_is_listening
+        srv = _s.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+        try:
+            assert port_is_listening(srv.getsockname()[1]) is True
+        finally:
+            srv.close()
+
+    def test_false_for_a_closed_port(self):
+        import socket as _s
+        from webgui.orchestrator import port_is_listening
+        srv = _s.socket(); srv.bind(("127.0.0.1", 0)); port = srv.getsockname()[1]
+        srv.close()
+        assert port_is_listening(port) is False
+
+    def test_probe_accepts_no_connection(self):
+        """THE POINT OF THE CHANGE. Probe a listening socket many times; the server must
+        never see an accepted connection, because none was ever opened."""
+        import socket as _s
+        from webgui.orchestrator import port_is_listening
+        if not os.path.exists("/proc/net/tcp"):
+            pytest.skip("no /proc/net/tcp; probe falls back to connect() by design")
+        srv = _s.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(8)
+        srv.settimeout(0.2)
+        try:
+            port = srv.getsockname()[1]
+            for _ in range(20):
+                assert port_is_listening(port) is True
+            with pytest.raises((BlockingIOError, OSError)):
+                srv.accept()          # nothing queued == nothing connected
+        finally:
+            srv.close()
