@@ -110,7 +110,10 @@ ER_REF=main                # or a release tag for a box you care about
 GENERATE_ENABLED=1
 GENERATE_TIMEOUT=180
 GENERATE_MAX_AS_MB=2048
-GENERATE_PLANDO=           # empty = plando off
+# empty = plando off. Keep this on its own line: an inline comment after an EMPTY
+# value ends up as the value, and generation then dies with
+# KeyError: '# empty = plando off is not a recognized name for a plando module'.
+GENERATE_PLANDO=
 ```
 
 ### 🛑 Before you expose /generate publicly
