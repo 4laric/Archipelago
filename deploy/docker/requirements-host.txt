@@ -17,3 +17,9 @@ orjson>=3.11.4
 typing_extensions>=4.15.0
 flask
 gunicorn
+
+# Peliarch's own, not AP's: orchestrator.py imports psutil for the room health card
+# (room_cpu_rss) and for resolve_server_pid. Both degrade SILENTLY without it -- cpu_percent
+# and rss_mb come back null and the launch pid is used unchanged -- so its absence reads as
+# "the health card is just like that" rather than as a missing dependency.
+psutil>=5.9
