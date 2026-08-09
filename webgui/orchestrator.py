@@ -60,13 +60,64 @@ def free_port(preferred: int, port_end: int = DEFAULT_PORT_END) -> int:
     raise RuntimeError(f"No free port found between {preferred} and {port_end}")
 
 
+def _connect_probe(host: str, port: int) -> bool:
+    """Fallback liveness check: open a TCP connection and drop it.
+
+    🛑 THIS IS THE NOISY ONE. It is only reached where the kernel socket table is not
+    readable (macOS/Windows dev boxes). See `port_is_listening`.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)
+        return s.connect_ex((host, port)) == 0
+
+
+def port_is_listening(port: int, host: str = "127.0.0.1") -> bool:
+    """True if something is LISTENing on `port`, WITHOUT opening a connection.
+
+    🛑🛑 WHY NOT connect_ex. Connecting and immediately closing is the obvious
+    implementation and it is what filled every room log with
+
+        connection rejected (400 Bad Request)
+        connection closed
+
+    once every 5 seconds, forever: `room.html` polls /health on a timer, each poll
+    connected to the room port and closed without sending a byte, and `websockets`
+    reads for an HTTP request line, hits EOF and rejects the "request". Measured: a
+    bare connect-and-close and a real TLS ClientHello produce the SAME 400, so the log
+    line could not even be told apart from a player failing to connect -- the noise was
+    actively misleading, not merely ugly.
+
+    Reading /proc/net/tcp{,6} answers the same question and touches nothing. Column 1
+    is `HEXIP:HEXPORT`, column 3 is the state, and 0A is TCP_LISTEN. The address family
+    and bind address are deliberately ignored: "is this port served" is the question,
+    exactly as it was for the connect probe.
+
+    Rooms run as child processes of this app, so they share its network namespace and
+    show up in the same table.
+    """
+    target = f"{port:04X}"
+    readable = False
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(path) as fh:
+                rows = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        readable = True
+        for row in rows:
+            cols = row.split()
+            if len(cols) > 3 and cols[3] == "0A" and cols[1].rsplit(":", 1)[-1].upper() == target:
+                return True
+    if readable:
+        return False
+    return _connect_probe(host, port)
+
+
 def wait_for_port(host: str, port: int, timeout: float = 60.0) -> bool:
     end = time.time() + timeout
     while time.time() < end:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1)
-            if s.connect_ex((host, port)) == 0:
-                return True
+        if port_is_listening(port, host):
+            return True
         time.sleep(0.5)
     return False
 
@@ -480,9 +531,8 @@ class RoomManager:
         cpu, rss = room_cpu_rss(room.pid)
         alive = False
         if room.status == "RUNNING" and room.port:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1)
-                alive = s.connect_ex(("127.0.0.1", room.port)) == 0
+            # NOT a connect probe -- this runs on a 5 s timer per open room page.
+            alive = port_is_listening(room.port)
         return {
             "id": room_id,
             "status": room.status,
