@@ -44,6 +44,12 @@ logger = logging.getLogger(__name__)
 DONATION_URL = os.environ.get(
     "DONATION_URL", "https://buymeacoffee.com/your-handle"
 )
+
+# Contact details rendered into the header/footer of every page. A Discord handle is not a
+# URL -- there is no profile link you can hand a stranger -- so the template renders it as
+# copyable text rather than a dead <a href>.
+CONTACT_DISCORD = os.environ.get("CONTACT_DISCORD", "@rickyquick")
+CONTACT_GITHUB  = os.environ.get("CONTACT_GITHUB", "https://github.com/4laric/archipelago")
 DEFAULT_PUBLIC_HOST = os.environ.get("PUBLIC_HOST", "localhost")
 DEFAULT_DATA_DIR    = os.environ.get("DATA_DIR",    os.path.join(os.path.dirname(__file__), "room_data"))
 DEFAULT_STORE_PATH  = os.environ.get("STORE_PATH",  os.path.join(os.path.dirname(__file__), "rooms.json"))
@@ -82,6 +88,23 @@ def create_app(manager: RoomManager = None) -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = DEFAULT_UPLOAD_MAX_BYTES
     app.config["DONATION_URL"] = DONATION_URL
     app.config["PUBLIC_HOST"]  = DEFAULT_PUBLIC_HOST
+    app.config["CONTACT_DISCORD"] = CONTACT_DISCORD
+    app.config["CONTACT_GITHUB"]  = CONTACT_GITHUB
+
+    @app.context_processor
+    def site_chrome():
+        """Header/footer values, injected into EVERY template.
+
+        Deliberately not a kwarg on each render_template: three call sites already had to
+        repeat donation_url, and a fourth that forgot it would render a footer with a dead
+        link and an empty contact line, with nothing to fail. Chrome belongs to the layout,
+        so it is supplied by the layout.
+        """
+        return {
+            "donation_url":    app.config["DONATION_URL"],
+            "contact_discord": app.config["CONTACT_DISCORD"],
+            "contact_github":  app.config["CONTACT_GITHUB"],
+        }
 
     if manager is None:
         manager = RoomManager(
@@ -135,7 +158,6 @@ def create_app(manager: RoomManager = None) -> Flask:
             "index.html",
             rooms=rooms,
             public_host=host,
-            donation_url=app.config["DONATION_URL"],
             # The dashboard advertises generation only when this box can actually do it. A link to
             # /er/ on a host with no ER tooling deployed is a 404 with extra steps, and "hosting
             # only" is the honest copy there -- so the template asks, rather than assuming.
@@ -162,7 +184,6 @@ def create_app(manager: RoomManager = None) -> Flask:
             connect=ci,
             logs=logs,
             public_host=host,
-            donation_url=app.config["DONATION_URL"],
         )
 
     # ------------------------------------------------------------------
@@ -425,7 +446,6 @@ def create_app(manager: RoomManager = None) -> Flask:
             return jsonify(error="not found"), 404
         return render_template(
             "base.html",
-            donation_url=app.config["DONATION_URL"],
             page_title="Not Found",
             content="<p>Room or page not found.</p>",
         ), 404
