@@ -5,6 +5,13 @@
 # bsdiff4, pyshortcuts) and build-only deps (cython, cymem) from the root
 # requirements.txt — a hosting box never imports them, and they pull in git +
 # heavy graphics toolchains that break (and bloat) a slim server image.
+#
+# BECAUSE THIS LIST IS CURATED, IT DRIFTS. Diff it against the root
+# requirements.txt on every AP version bump. Anything imported at the top of
+# Utils.py belongs here: both MultiServer.py and Generate.py import Utils, so a
+# missing one takes down room hosting AND generation while the Flask GUI keeps
+# serving normally — the box looks up and does nothing. pathspec was added
+# upstream in 0.6.7 and did exactly that.
 colorama>=0.4.6
 websockets>=13.0.1,<14
 PyYAML>=6.0.3
@@ -15,6 +22,7 @@ platformdirs>=4.5.0
 certifi>=2025.11.12
 orjson>=3.11.4
 typing_extensions>=4.15.0
+pathspec>=1.0.4
 flask
 gunicorn
 
