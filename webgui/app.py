@@ -34,6 +34,7 @@ from werkzeug.exceptions import NotFound
 
 from webgui.orchestrator import RoomManager, DEFAULT_IDLE_TIMEOUT, DEFAULT_UPLOAD_MAX_BYTES
 from webgui import generator
+from webgui import releases
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,24 @@ def create_app(manager: RoomManager = None) -> Flask:
             # only" is the honest copy there -- so the template asks, rather than assuming.
             can_generate=bool(GENERATE_ENABLED and AP_ROOT and os.path.isfile(
                 os.path.join(AP_ROOT, "Generate.py"))),
+            er_tooling=bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
+        )
+
+    @app.route("/downloads")
+    def downloads():
+        """The published Elden Ring release: what to download and in what order.
+
+        Peliarch hosts rooms; er-archipelago publishes the game. Those are different repos with
+        different release cadences, so this page reads the release rather than restating it --
+        see `webgui/releases.py` for why a hardcoded version here would be a fourth surface to
+        forget to bump.
+        """
+        return render_template(
+            "downloads.html",
+            rel=releases.get_releases(),
+            nexus_url=releases.NEXUS_URL,
+            game_github_url=releases.GAME_GITHUB_URL,
+            releases_index=releases.GAME_GITHUB_URL.rstrip("/") + "/releases",
             er_tooling=bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
         )
 
