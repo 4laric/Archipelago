@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Downloads — Peliarch{% endblock %}
+
+{% block content %}
+<h1>Downloads</h1>
+<p class="page-sub">
+  Elden Ring for Archipelago — the apworld, the runtime client, and the docs.
+  Published on GitHub Releases; this page reads whatever the newest release actually carries.
+</p>
+
+<!-- ===================== The rule, before the buttons ===================== -->
+<!--
+  This warning sits ABOVE the download buttons on purpose. release/DISTRIBUTION.md: a mismatched
+  apworld/client pair "does not fail loudly at the door -- it boots, connects, and then behaves
+  subtly wrong." A caveat printed under the button someone already clicked is decoration.
+-->
+<div class="card" style="border-color:#7c6af7; margin-bottom:1.5rem;">
+  <h3 style="color:#a78bfa; margin-bottom:0.4rem;">Take both halves from the same release</h3>
+  <p>
+    The apworld and the client <code>.dll</code> are a <strong>hash-matched pair</strong>. A
+    mismatched pair does not fail at the door — it connects, and then behaves subtly wrong. The
+    bundle below contains both halves from one tag, which is why it is the download for players.
+    If your client log says <code>VERSION MISMATCH</code>, that is this: redownload both from the
+    same release, and don't file a bug from a mismatched pair.
+  </p>
+</div>
+
+{% if rel.ok %}
+<div class="section-header" style="margin-top:0;">
+  <h2 style="margin-bottom:0;">Latest release</h2>
+  <span class="pill pill-running">{{ rel.tag }}</span>
+  {% if rel.published_at %}
+  <span style="font-size:0.78rem; color:#475569;">published {{ rel.published_at[:10] }}</span>
+  {% endif %}
+</div>
+
+<!-- ---------- Players: the bundle ---------- -->
+{% set bundle = rel.asset('bundle') %}
+<div class="card">
+  <div style="display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
+    <h3 style="margin-bottom:0;">For players — the full bundle</h3>
+    <span style="font-size:0.75rem; color:#475569;">apworld + client DLL + docs, one matched download</span>
+  </div>
+  <p style="margin:0.5rem 0 0.9rem;">
+    Everything you need to play. Unzip it and follow <code>SETUP.md</code> inside — roughly fifteen
+    minutes from here to a running seed. You also need Elden Ring on PC (Steam),
+    <a href="https://archipelago.gg" target="_blank" rel="noopener">Archipelago</a>, and the
+    ModEngine3 (me3) mod loader; the setup guide walks both.
+  </p>
+  {% if bundle.available %}
+  <a class="btn btn-primary" href="{{ bundle.url }}">
+    Download {{ bundle.filename }}{% if bundle.size_human %} — {{ bundle.size_human }}{% endif %}
+  </a>
+  {% else %}
+  <p style="color:#f87171;">
+    Not published on <strong>{{ rel.tag }}</strong>.
+    {% if bundle.last_seen_tag %}
+    The last release carrying it was
+    <a href="{{ bundle.last_seen_url }}">{{ bundle.last_seen_tag }}</a> — note that it is an older
+    build than {{ rel.tag }}.
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+
+<!-- ---------- Hosts: the bare apworld ---------- -->
+{% set apworld = rel.asset('apworld') %}
+<div class="card">
+  <div style="display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
+    <h3 style="margin-bottom:0;">For hosts — the bare apworld</h3>
+    <span style="font-size:0.75rem; color:#475569;">generating a multiworld, not playing it</span>
+  </div>
+  <p style="margin:0.5rem 0 0.9rem;">
+    Just the world definition. If you are rolling a seed for someone else you need this and nothing
+    else — no game, no client DLL. Drop it in your Archipelago <code>custom_worlds/</code> folder.
+    {% if er_tooling %}
+    Or skip the install entirely and
+    <a href="/er/">build a seed in the options wizard</a>, which generates and hosts it here.
+    {% endif %}
+  </p>
+  {% if apworld.available %}
+  <a class="btn btn-primary" href="{{ apworld.url }}">
+    Download {{ apworld.filename }}{% if apworld.size_human %} — {{ apworld.size_human }}{% endif %}
+  </a>
+  {% else %}
+  <!--
+    Not an error page. A tag can ship one asset and not the other, and saying so plainly beats
+    silently linking an older tag's file under a heading that says "latest". The older tag is
+    offered, but only ever with its own version written on the link.
+  -->
+  <p style="color:#fb923c; margin-bottom:0.6rem;">
+    <strong>{{ rel.tag }} did not publish a bare apworld.</strong>
+    {% if apworld.last_seen_tag %}
+    The last one is from <strong>{{ apworld.last_seen_tag }}</strong> — an older build. Players on a
+    {{ rel.tag }} client connecting to a seed generated with it will see a version mismatch.
+    {% else %}
+    Take the apworld out of the bundle above instead.
+    {% endif %}
+  </p>
+  {% if apworld.last_seen_url %}
+  <a class="btn btn-neutral" href="{{ apworld.last_seen_url }}">
+    Download eldenring.apworld from {{ apworld.last_seen_tag }}
+  </a>
+  {% endif %}
+  {% endif %}
+</div>
+
+<p style="font-size:0.8rem; color:#475569; margin-top:0.25rem;">
+  Changelog, checksums and every past build:
+  <a href="{{ rel.html_url }}" target="_blank" rel="noopener">{{ rel.tag }} release notes</a>
+  <span class="sep">·</span>
+  <a href="{{ releases_index }}" target="_blank" rel="noopener">all releases</a>
+</p>
+
+{% else %}
+<!--
+  Degraded. We could not resolve a release -- no network, rate limit, API change. The releases index
+  is always right and never stale, so link it rather than rendering a download URL we cannot vouch
+  for. A dead download button is worse than no button.
+-->
+<div class="card">
+  <h3>Get it from GitHub Releases</h3>
+  <p style="margin:0.5rem 0 0.9rem;">
+    Version information isn't reachable from this host right now. The releases page has the current
+    build — take the <code>ER-Archipelago-v&lt;version&gt;.zip</code> bundle if you're playing, or
+    the bare <code>eldenring.apworld</code> if you're only generating a seed.
+  </p>
+  <a class="btn btn-primary" href="{{ releases_index }}" target="_blank" rel="noopener">
+    Open GitHub Releases
+  </a>
+</div>
+{% endif %}
+
+<hr class="divider">
+
+<!-- ===================== Where the project lives ===================== -->
+<h2>Where the project lives</h2>
+<div class="card">
+  <h3>GitHub — <a href="{{ game_github_url }}" target="_blank" rel="noopener">4laric/er-archipelago</a></h3>
+  <p style="margin-bottom:0.9rem;">
+    Source, releases, the player guide, known issues, and where to file a bug. This is the single
+    source of truth for downloads: every other page linking this project, including this one,
+    points back here.
+  </p>
+  <h3>Nexus Mods — <a href="{{ nexus_url }}" target="_blank" rel="noopener">Archipelago in Elden Ring</a></h3>
+  <p>
+    The mod page, screenshots, and the comment thread where most player feedback arrives. It links
+    to the same GitHub release rather than hosting its own copy — a mirror goes stale, and a stale
+    copy of this particular artifact produces exactly the mismatched pair described at the top.
+  </p>
+</div>
+
+<div style="margin-top:1.5rem; color:#475569; font-size:0.8rem; line-height:1.7;">
+  <strong style="color:#64748b;">Not randomizing enemies?</strong>
+  This project deliberately doesn't — thefifthmatt's
+  <a href="https://www.nexusmods.com/eldenring/mods/428" target="_blank" rel="noopener">Elden Ring
+  Item and Enemy Randomizer</a> already does it well and the two stack cleanly, with one rule: item
+  randomization must be <em>off</em> in matt's, since items are this project's job.
+</div>
+{% endblock %}
