@@ -49,7 +49,14 @@ CRASH_BACKOFF_BASE = 5.0            # seconds; doubles each restart
 # ---------------------------------------------------------------------------
 
 def free_port(preferred: int, port_end: int = DEFAULT_PORT_END) -> int:
-    """Return preferred if free, else scan upward for a free port."""
+    """Return preferred if free, else scan upward for a free port.
+
+    🛑 NOT THE ROOM ALLOCATOR. This asks the kernel only, so it hands out a port that no process
+    is sitting on RIGHT NOW -- including one that a hibernated room still owns and will want back.
+    `start_room` used to call it, which is why every sleeping room remembered 38400. Rooms go
+    through `RoomManager._pick_free_port`, which also excludes ports claimed by the store.
+    Left here for the load-test harnesses, which have no store to consult.
+    """
     for p in range(preferred, port_end):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
@@ -58,6 +65,16 @@ def free_port(preferred: int, port_end: int = DEFAULT_PORT_END) -> int:
             except OSError:
                 continue
     raise RuntimeError(f"No free port found between {preferred} and {port_end}")
+
+
+def _port_is_bindable(port: int) -> bool:
+    """True if nothing is currently holding `port` on this box."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+        except OSError:
+            return False
+    return True
 
 
 def _connect_probe(host: str, port: int) -> bool:
@@ -266,11 +283,40 @@ class Room:
         return Room(**d)
 
     def connect_info(self, public_host: str) -> dict:
+        """The address a player types into their client -- or nothing, when there is nothing to type.
+
+        🛑 A PORT NUMBER IS NOT AN ADDRESS, AND THIS IS THE METHOD THAT USED TO CONFUSE THE TWO.
+        It rendered an address whenever `port` was truthy, and `port` outlives the process: a
+        hibernated room keeps the port it owns. THE MOTIVATING CASE (rule 11), 2026-08-12: the
+        dashboard offered five sleeping rooms `ws://host:38400` apiece, each with a Copy button,
+        and nothing was listening on any of them. Two of those rooms were both named
+        "Player - Elden Ring", so the name did not distinguish them either.
+
+        Why that is worse than a cosmetic bug: Archipelago's `Connect` packet carries a slot name
+        and a password and NO room identifier. A client that reaches whichever server actually
+        holds the port, with a slot name that seed happens to contain, joins the WRONG multiworld
+        and is told nothing. So an address is safe to hand out only when it is both
+
+          * this room's port -- guaranteed now, because the port is allocated once at creation and
+            held for the room's whole life (`RoomManager._pick_free_port`), so a stale copied
+            address can resolve to this room or to nothing, never to somebody else's seed; and
+          * actually open -- which is what `status == RUNNING` is doing here.
+
+        While the room sleeps the caller gets `ws: None` and has to say so in words.
+
+        `wss` is reported for completeness and is deliberately NOT the loud string in any template.
+        Room ports are published straight through by Compose and never touch Caddy, so they speak
+        plaintext; a player who copies a `wss://` room address earns `SSLError:
+        WRONG_VERSION_NUMBER`. CommonClient prepends `ws://` to a bare host:port, so the plain
+        form is also the forgiving one.
+        """
+        live = self.status == "RUNNING" and bool(self.port)
         return {
             "host": public_host,
             "port": self.port,
-            "wss": f"wss://{public_host}:{self.port}" if self.port else None,
-            "ws":  f"ws://{public_host}:{self.port}"  if self.port else None,
+            "live": live,
+            "wss": f"wss://{public_host}:{self.port}" if live else None,
+            "ws":  f"ws://{public_host}:{self.port}"  if live else None,
         }
 
 
@@ -382,6 +428,72 @@ class RoomManager:
                 room.launch_pid = None
                 self._store.put(room)
 
+        self._resolve_port_collisions()
+
+    # ------------------------------------------------------------------
+    # Port allocation -- one port per room, for the room's life
+    # ------------------------------------------------------------------
+
+    def _claimed_ports(self, except_room_id: Optional[str] = None) -> set:
+        """Every port the store has promised to a room, running or not.
+
+        A hibernated room's port is not free. It is reserved -- that reservation is the whole
+        safety property, because it is what stops a stale connect address a player copied last
+        week from resolving to a different seed this week.
+        """
+        return {
+            r.port for r in self._store.all()
+            if r.port is not None and r.id != except_room_id
+        }
+
+    def _pick_free_port(self, exclude: Optional[set] = None) -> int:
+        """A port inside the range that no room claims and no process holds."""
+        exclude = exclude or set()
+        for p in range(self.port_start, self.port_end):
+            if p in exclude:
+                continue
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(("0.0.0.0", p))
+                except OSError:
+                    continue
+            return p
+        raise RuntimeError(
+            f"No free port between {self.port_start} and {self.port_end}; "
+            f"{len(exclude)} are claimed by existing rooms. Delete a finished room, or widen "
+            f"PORT_START/PORT_END."
+        )
+
+    def _resolve_port_collisions(self) -> None:
+        """Give every room in the store a port of its own, once, at startup.
+
+        🛑 STICKY PORTS INHERIT A COLLISION UNLESS IT IS BROKEN HERE. Rooms created before the
+        port was sticky carry whatever port they last STARTED on, and on a box that runs one room
+        at a time that is the same number for all of them -- the five rooms live on peliarch.ca
+        all record 38400. Making the port permanent without this pass would freeze the exact
+        confusion it was meant to end.
+
+        First claimant of a valid port keeps it; everyone else is re-homed and the move is logged,
+        because an operator who has handed an address to a player deserves to see it change.
+        """
+        seen: Dict[int, str] = {}
+        needs_port: List[Room] = []
+        for room in self._store.all():
+            in_range = room.port is not None and self.port_start <= room.port < self.port_end
+            if in_range and room.port not in seen:
+                seen[room.port] = room.id
+            else:
+                needs_port.append(room)
+        for room in needs_port:
+            old = room.port
+            room.port = self._pick_free_port(exclude=set(seen))
+            seen[room.port] = room.id
+            logger.warning(
+                "Room %s: port %s -> %d (was %s)", room.id, old, room.port,
+                "claimed by another room" if old is not None else "unset",
+            )
+            self._store.put(room)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -423,6 +535,9 @@ class RoomManager:
             idle_timeout=idle_timeout,
             tier=tier,
             log_path=log_path,
+            # The port is part of the room's identity, not of one launch. See
+            # Room.connect_info for what goes wrong when it is per-start.
+            port=self._pick_free_port(exclude=self._claimed_ports()),
         )
         self._store.put(room)
         logger.info("Created room %s (%s)", room_id, name)
@@ -447,8 +562,22 @@ class RoomManager:
             self._store.put(room)
 
         try:
-            port = free_port(self.port_start, self.port_end)
-            room.port = port
+            # The room already owns a port (create_room assigned it). Reuse it -- do NOT go
+            # looking for a free one, or a restart silently moves a room whose address players
+            # already hold.
+            port = room.port
+            if port is None:
+                # Only rooms created before ports were sticky reach here; _resolve_port_collisions
+                # normally fills these in at startup.
+                port = room.port = self._pick_free_port(
+                    exclude=self._claimed_ports(except_room_id=room.id))
+            if not _port_is_bindable(port):
+                # Loud on purpose. Quietly picking a different port is how a player ends up
+                # connected to a stranger's multiworld with no error on either side.
+                raise RuntimeError(
+                    f"Port {port} belongs to room {room.id} but something else is holding it; "
+                    f"not starting. Check for an orphaned server process on that port."
+                )
             # Tier selects the backend: Large rooms run the Go server (peliarch),
             # everything else runs stock MultiServer.
             if room.tier == "Large":
@@ -493,6 +622,9 @@ class RoomManager:
         room._proc = None
         room.pid = None
         room.launch_pid = None
+        # room.port is KEPT. It is the room's for as long as the room exists, so waking it up
+        # gives players back the address they already have. What must not survive the stop is the
+        # claim that anything is listening on it -- Room.connect_info reads `status` for that.
         room.status = "HIBERNATED"
         self._store.put(room)
         logger.info("Room %s stopped → HIBERNATED", room_id)

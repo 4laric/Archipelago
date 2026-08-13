@@ -2,7 +2,9 @@
 app.py — Flask web app for Peliarch self-host GUI.
 
 Implements:
-  HTML pages:  GET /              dashboard
+  HTML pages:  GET /              the Elden Ring landing page (static, from ER_STATIC_DIR)
+               GET /hosting      the rooms dashboard: room list + create form
+               GET /downloads    the published release
                GET /room/<id>    room page (connect block, status, logs, controls)
 
   JSON API:    POST   /rooms              upload .archipelago → create room
@@ -72,14 +74,18 @@ GENERATE_PLANDO     = os.environ.get("GENERATE_PLANDO", generator.DEFAULT_PLANDO
 # single-file HTML pages built in the er-archipelago repo, NOT vendored here; a deploy copies them
 # into ER_STATIC_DIR. Unset (or a missing dir) = the routes 404 and nothing else changes.
 #
-# 🛑 THIS DIRECTORY IS ALSO THE FRONT DOOR AS OF v0.4.0: `/` serves landing.html out of it.
+# 🛑 THIS DIRECTORY IS THE FRONT DOOR: `/` serves landing.html out of it. Four pages arrive
+# through it -- landing.html, wizard.html, checks.html, report.html -- plus tabs.js, the one
+# definition of the site's tab strip. Each is installed atomically and pinned to a release tag by
+# er-archipelago's tools/deploy_wizard.sh.
 #
-# It used to be justified by the wizard's "Generate & host" button, which was same-origin only so
-# that a file:// page's `null` origin could not force Access-Control-Allow-Origin: * onto
-# /generate. That button and that endpoint are both retired, so the CORS argument is gone -- and
-# the directory matters MORE, not less, because three separate pages now arrive through it:
-# landing.html, wizard.html and checks.html, each installed atomically and each pinned to a
-# release tag by er-archipelago's tools/deploy_wizard.sh.
+# 🛑 SERVING THEM IS ALSO WHAT MAKES THE WIZARD'S "Generate & host" BUTTON POSSIBLE AT ALL, and
+# that argument came back with the button (v0.4.1). It is same-origin only on purpose: from a
+# file:// page the origin is `null`, so a cross-origin POST would either fail CORS or force
+# Access-Control-Allow-Origin: * onto /generate -- the one endpoint that spends CPU on a
+# stranger's input. Served from here it is a same-origin POST and no CORS policy exists to get
+# wrong. The file:// copy inside every release zip therefore does NOT get the button; it gets a
+# link to the hosted wizard.
 ER_STATIC_DIR = os.environ.get("ER_STATIC_DIR", "")
 
 
@@ -108,6 +114,11 @@ def create_app(manager: RoomManager = None) -> Flask:
             "donation_url":    app.config["DONATION_URL"],
             "contact_discord": app.config["CONTACT_DISCORD"],
             "contact_github":  app.config["CONTACT_GITHUB"],
+            # The tab strip lives in base.html and three of its five tabs are served out of
+            # ER_STATIC_DIR, so it has to know whether that directory exists -- a Builder tab
+            # that 404s is worse than no Builder tab. Read at request time, not captured at
+            # create_app time, so a test (and a deploy that lands mid-process) sees the truth.
+            "er_tooling": bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
         }
 
     if manager is None:
@@ -155,7 +166,7 @@ def create_app(manager: RoomManager = None) -> Flask:
     # ------------------------------------------------------------------
 
     @app.route("/")
-    def dashboard():
+    def front_door():
         """The front door is the Elden Ring landing page, served out of ER_STATIC_DIR.
 
         🛑 IT IS A STATIC FILE, NOT A TEMPLATE, ON PURPOSE. `landing.html` is built and gated in
@@ -165,8 +176,8 @@ def create_app(manager: RoomManager = None) -> Flask:
         fourth surface that drifts from the release, which is the failure
         SPEC-publishing-pipeline.md was written about.
 
-        The name `dashboard` is kept because `url_for("dashboard")` is referenced elsewhere;
-        renaming it is a follow-up, not part of scoping hosting out.
+        It used to be called `dashboard`, which by v0.4.0 named the opposite of what it served.
+        The rooms dashboard is `/hosting` and the view is `hosting()`; this one is `front_door`.
         """
         if ER_STATIC_DIR and os.path.isfile(os.path.join(ER_STATIC_DIR, "landing.html")):
             return send_from_directory(ER_STATIC_DIR, "landing.html")
@@ -179,8 +190,33 @@ def create_app(manager: RoomManager = None) -> Flask:
             "<code>ER_STATIC_DIR=... tools/deploy_wizard.sh --landing</code> from the "
             "er-archipelago repo.</p>"
             "<p><a href=\"/er/\">Options wizard</a> &middot; "
-            "<a href=\"/downloads\">Downloads</a></p>"
+            "<a href=\"/downloads\">Downloads</a> &middot; "
+            "<a href=\"/hosting\">Hosting</a></p>"
         ), 503
+
+    @app.route("/hosting")
+    def hosting():
+        """The rooms dashboard -- one tab of the site, and deliberately not the front page.
+
+        The builder is what people arrive for; it is the only surface anyone can use before
+        deciding whether to install a DLL. Hosting sits beside it rather than in front of it,
+        which is also why this is `/hosting` and not `/`.
+
+        `can_generate` and `er_tooling` are asked, not assumed: a link to /er/ on a box with no ER
+        tooling deployed is a 404 with extra steps, and "hosting only, upload a seed you generated
+        elsewhere" is the honest copy on a box that cannot generate. The template renders whichever
+        of those two sites this actually is.
+        """
+        return render_template(
+            "index.html",
+            tab="hosting",
+            rooms=mgr().list_rooms(),
+            public_host=mgr().public_host,
+            can_generate=bool(GENERATE_ENABLED and AP_ROOT and os.path.isfile(
+                os.path.join(AP_ROOT, "Generate.py"))),
+            # er_tooling arrives from the context processor -- it is chrome, and this page is not
+            # the only one that needs it.
+        )
 
     @app.route("/downloads")
     def downloads():
@@ -193,6 +229,7 @@ def create_app(manager: RoomManager = None) -> Flask:
         """
         return render_template(
             "downloads.html",
+            tab="downloads",
             rel=releases.get_releases(),
             nexus_url=releases.NEXUS_URL,
             game_github_url=releases.GAME_GITHUB_URL,
@@ -214,6 +251,7 @@ def create_app(manager: RoomManager = None) -> Flask:
         ci   = room.connect_info(host)
         return render_template(
             "room.html",
+            tab="hosting",
             room=room,
             connect=ci,
             logs=logs,
@@ -240,54 +278,172 @@ def create_app(manager: RoomManager = None) -> Flask:
             return jsonify(error=f"No such file: {filename}"), 404
 
     # ------------------------------------------------------------------
-    # RETIRED AT v0.4.0: room creation and seed generation
+    # Room creation and seed generation. RETIRED AT v0.4.0, BACK AT v0.4.1 WITH THE DEFECT FIXED.
     #
-    # 🛑 410 GONE, NOT A DELETED ROUTE, AND NOT A 404. Two callers still exist in the wild and
-    # neither can be updated by us: an options wizard already open in somebody's browser, and the
-    # file:// copy of an older wizard shipped inside every previous release zip. Both POST here.
-    # The old wizard renders `data.error` straight into its own UI, so a 410 carrying a readable
-    # sentence is the only way to tell a player what happened -- a 404 reads as "the site is
-    # broken" and a deleted route reads as nothing at all.
+    # 🛑 READ THE MOTIVATING CASE BEFORE CHANGING ANYTHING HERE (rule 11), 2026-08-12: the
+    # dashboard offered five hibernated rooms the SAME connect address, ws://host:38400, with a
+    # Copy button beside each one. Archipelago's Connect packet carries a slot name and a password
+    # and NO room identifier, so a client reaching whichever server actually held 38400 -- with a
+    # slot name that seed happened to contain -- would join the wrong multiworld and be told
+    # nothing by either side. Two of those rooms were both named "Player - Elden Ring", so the name
+    # did not distinguish them either. Hosting was scoped out rather than patched, a week before
+    # the first public announcement, because nobody owned that failure mode.
     #
-    # WHY: hosting is out of scope for this project as of v0.4.0. The site is the yaml builder,
-    # the downloads, the documentation, the check browser and the bug report form.
+    # ⭐ THE DIAGNOSIS IN THAT NOTE WAS WRONG IN ITS DETAIL AND IT MATTERS. It blamed
+    # RandomPortSocketCreator taking a port at socket-creation time. This app does not use that:
+    # `_launch_multiserver` passes `--port` explicitly, so a RUNNING room's port was always
+    # truthful. The lie was in the record -- `start_room` allocated per START via `free_port`, and
+    # `stop_room` never cleared `port` -- so five sleeping rooms each remembered the 38400 they
+    # last held, and the next one to wake took it for real.
     #
-    # THE MOTIVATING CASE (rule 11), 2026-08-12: the dashboard offered five hibernated rooms the
-    # SAME connect address, ws://host:38400, with a Copy button beside it. The allocator is
-    # genuinely port-per-room -- RandomPortSocketCreator takes a free port out of 38400-38463 when
-    # the socket is created -- so 38400 was a placeholder for rooms with no live socket, and four
-    # of the five were wrong the moment their room woke. Archipelago's Connect packet carries a
-    # slot name and a password and NO room identifier, so a client reaching whichever server
-    # actually held 38400, with a slot name that seed happened to contain, would join the wrong
-    # multiworld and be told nothing. Two of those rooms were both named "Player - Elden Ring".
+    # WHAT MAKES IT SAFE NOW, both in webgui/orchestrator.py and both under test in
+    # webgui/test_ports.py:
+    #   1. A port is allocated ONCE, at room creation, excluding every port the store has already
+    #      promised, and the room keeps it for its whole life. A stale address a player copied last
+    #      week resolves to that room or to nothing -- never to somebody else's seed.
+    #   2. `Room.connect_info` returns an address only while `status == RUNNING`. A port number is
+    #      not an address, and a sleeping room now says so in words.
+    # `_resolve_port_collisions` re-homes the rooms already on the box, which all record 38400.
     #
-    # The display bug is an afternoon. Owning the failure mode is not, a week before the first
-    # public announcement, so the surface is gone rather than patched.
-    #
-    # EXISTING ROOMS ARE NOT TOUCHED. /room/<id> and its start/stop/logs/delete routes stay so
-    # nobody loses a seed mid-run. Removing those is a v0.4.1 job, once they have aged out.
+    # 🛑 THE 410 BODY IS GONE BUT ITS AUDIENCE IS NOT. Two callers we cannot update still POST
+    # here: an options wizard already open in somebody's browser, and the file:// wizard inside
+    # every previous release zip. Both render `data.error` verbatim into their own UI, so every
+    # failure reply below has to be a sentence a player can act on -- not a bare status code.
     # ------------------------------------------------------------------
-
-    _RETIRED = (
-        "Peliarch no longer hosts rooms or generates seeds. Use the options wizard to build "
-        "your yaml, then generate with Archipelago locally or host at archipelago.gg. Your "
-        "existing rooms still work."
-    )
 
     @app.route("/rooms", methods=["POST"])
     def create_room():
-        return jsonify(error=_RETIRED, retired=True), 410
+        """Upload .archipelago and create a room."""
+        if "file" not in request.files:
+            return jsonify(error="No file uploaded (field name: 'file')"), 400
+
+        f = request.files["file"]
+        if not f.filename:
+            return jsonify(error="Empty filename"), 400
+
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in (".archipelago", ".zip"):
+            return jsonify(error="File must be .archipelago or .zip"), 400
+
+        name         = (request.form.get("name") or f.filename).strip()
+        password     = request.form.get("password") or None
+        tier         = request.form.get("tier", "Standard")
+        idle_timeout = int(request.form.get("idle_timeout", DEFAULT_IDLE_TIMEOUT))
+
+        data = f.read()
+        try:
+            room = mgr().create_room(
+                name=name,
+                file_data=data,
+                filename=f.filename,
+                password=password,
+                idle_timeout=idle_timeout,
+                tier=tier,
+            )
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        except Exception as e:
+            logger.exception("create_room failed")
+            return jsonify(error=str(e)), 500
+
+        # Auto-start on create
+        try:
+            room = mgr().start_room(room.id)
+        except Exception as e:
+            logger.warning("Auto-start failed for room %s: %s", room.id, e)
+
+        if _wants_json():
+            return jsonify(room_summary(room)), 201
+        return redirect(url_for("room_page", room_id=room.id))
 
     @app.route("/generate", methods=["POST"])
     def generate_and_host():
-        return jsonify(error=_RETIRED, retired=True), 410
+        """yaml in, running room out -- the stage that used to happen on the player's own machine.
+
+        Accepts either a `yaml` form field (what the options wizard POSTs) or one-or-more uploaded
+        `file` parts (a multiworld's player files). On success it does exactly what /rooms does with
+        an upload, because the generated seed IS an upload as far as the orchestrator is concerned:
+        create the room, auto-start it, hand back the connect address.
+
+        🛑 This is the one endpoint on the site that runs a program over text a stranger wrote.
+        webgui/generator.py holds that line -- wall timeout, RLIMIT_AS/CPU, process-group kill,
+        plando off -- and it can bound a SINGLE generation but not the ARRIVAL RATE. That half is
+        the `rate_limit` block in deploy/docker/Caddyfile, which came back with this route and
+        must not be dropped again: one gunicorn worker means an in-app limiter competes for the
+        very thread it is trying to protect. Do not move generation in-process to save a fork;
+        the fork IS the boundary.
+        """
+        if not GENERATE_ENABLED:
+            return jsonify(error="Seed generation is disabled on this host"), 503
+
+        yamls = []
+        for f in request.files.getlist("file"):
+            if f.filename:
+                yamls.append(f.read())
+        text = request.form.get("yaml")
+        if text:
+            yamls.append(text.encode("utf-8"))
+        if not yamls:
+            return jsonify(error="No yaml supplied (form field 'yaml', or file parts named 'file')"), 400
+
+        try:
+            generator.validate_yamls(yamls)
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+
+        seed_arg = request.form.get("seed")
+        try:
+            result = generator.generate(
+                yamls, AP_ROOT,
+                seed=int(seed_arg) if seed_arg else None,
+                plando=GENERATE_PLANDO,
+                timeout=GENERATE_TIMEOUT,
+                max_address_space_mb=GENERATE_MAX_AS_MB,
+            )
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        except generator.GenerationError as e:
+            # 504 for "it ran too long", 422 for "your yaml does not generate" -- a caller needs to
+            # tell "try again" apart from "fix your options", and both are the user's fault, not a 500.
+            code = 504 if e.timed_out else 422
+            return jsonify(error=str(e), detail=e.detail), code
+        except Exception as e:
+            logger.exception("generate failed")
+            return jsonify(error=str(e)), 500
+
+        name         = (request.form.get("name") or result.filename).strip()
+        password     = request.form.get("password") or None
+        tier         = request.form.get("tier", "Standard")
+        idle_timeout = int(request.form.get("idle_timeout", DEFAULT_IDLE_TIMEOUT))
+
+        try:
+            room = mgr().create_room(
+                name=name, file_data=result.data, filename=result.filename,
+                password=password, idle_timeout=idle_timeout, tier=tier,
+            )
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        except Exception as e:
+            logger.exception("create_room after generate failed")
+            return jsonify(error=str(e)), 500
+
+        try:
+            room = mgr().start_room(room.id)
+        except Exception as e:
+            logger.warning("Auto-start failed for generated room %s: %s", room.id, e)
+
+        if _wants_json():
+            body = room_summary(room)
+            body["seed_file"] = result.filename
+            return jsonify(body), 201
+        return redirect(url_for("room_page", room_id=room.id))
 
     @app.route("/rooms", methods=["GET"])
     def list_rooms():
         rooms = mgr().list_rooms()
         if _wants_json():
             return jsonify([room_summary(r) for r in rooms])
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("hosting"))
 
     # ------------------------------------------------------------------
     # API: single room

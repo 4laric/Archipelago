@@ -95,16 +95,36 @@ UPLOADED ──auto-start──► STARTING ──ready──► RUNNING
    ▲                                         │
    │                         idle > timeout  │
    │                                         ▼
- (reconnect wakes) ◄──── HIBERNATED ◄──save──┘
+  (Start) ◄──────────── HIBERNATED ◄──save──┘
                                              │ crash
                                   RUNNING ◄─restart─ CRASHED (after 5 retries)
 ```
 
-- **RUNNING**: process up, port allocated, players can connect.
-- **HIBERNATED**: no connections for `idle_timeout` minutes → process killed, port freed.
-  Connecting wakes it in a few seconds.
+- **RUNNING**: process up, listening on the room's port, players can connect. This is the ONLY
+  state with a connect address; `Room.connect_info` returns `ws: None` in every other one.
+- **HIBERNATED**: no connections for `idle_timeout` minutes → process killed. The room **keeps its
+  port** — see below. Press **Start** to wake it.
 - **CRASHED**: process exited unexpectedly; auto-restarts with exponential backoff (5×
   max). After 5 failures the room is parked — use the Start button to retry.
+
+### 🛑 Two things this diagram used to say that were false
+
+**"Connecting wakes it in a few seconds."** It does not, and never did: `stop_room` kills the
+process, so nothing is listening on the port and a connect is refused. Wake-on-connect would need a
+listener on the room's port that starts the room and proxies through. That is now *buildable* —
+the port belongs to the room permanently, which is the prerequisite — but it is not built, so
+nothing in the UI claims it.
+
+**"port freed."** The port is **not** freed, deliberately. A room is allocated one port when it is
+created, excluding every port already promised to another room, and it holds that port for as long
+as it exists. This is the property that makes a published address safe: a stale address a player
+copied last week resolves to *that room* or to nothing, never to a different seed.
+
+It matters because Archipelago's `Connect` packet carries a slot name and a password and **no room
+identifier**. Hosting was scoped out of this project for one release over exactly this: five
+hibernated rooms, all reporting the port they had last *started* on — the same number, because the
+box runs one room at a time — each with a Copy button beside it. Two of them were named
+`Player - Elden Ring`. See `webgui/test_ports.py`, which fails against the old allocator.
 
 ---
 

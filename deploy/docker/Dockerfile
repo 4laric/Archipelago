@@ -46,10 +46,30 @@ RUN git clone --depth 1 --branch "$ER_REF" "$ER_REPO" /er \
 # The world is installed into an empty tree here and copied into /app in stage 2, so a rebuild of
 # stage 2 does not re-clone.
 RUN mkdir -p /apworld && python /er/tools/gf_test.py --install-only --ap-dir /apworld
+# 🛑 THE SERVED NAMES ARE THE CONTRACT, NOT THE REPO PATHS. app.py serves this directory verbatim
+# and every link on the site is written against the served name -- /er/checks.html,
+# /er/report.html, /er/tabs.js -- and `/` reads landing.html out of here. Copying the check browser
+# under its repo name left /er/checks.html, the name the landing page links, a 404. Four of the
+# five files below were simply absent, so a freshly built image answered 404 for the bug report
+# form and the tab strip and 503 for its own front page.
+#
+# NO BLANKET `|| true`. The old line ended `2>/dev/null || true`, and that rescues the WHOLE `&&`
+# chain: a missing wizard.html produced an image that built, started, and served a 404 as the front
+# door. An empty result is a failure, so these five fail the build. The questline DAG gets its own
+# line and keeps the tolerance, because it is the one artifact that may legitimately not exist at an
+# older ER_REF.
+#
+# This is the FALLBACK copy, pinned to ER_REF. er-archipelago's tools/deploy_wizard.sh is the
+# primary installer and pins to the STABLE TAG, which is the stricter and more correct answer -- it
+# just cannot run inside a docker build. A box that runs the script gets the script's files; a box
+# that never runs it now gets a working site instead of a broken one.
 RUN mkdir -p /er-static \
- && cp /er/wizard/wizard.html /er-static/wizard.html \
- && cp /er/er-archipelago-check-browser.html /er-static/ \
- && cp /er/er-archipelago-questline-dag.html /er-static/ 2>/dev/null || true
+ && cp /er/wizard/wizard.html  /er-static/wizard.html \
+ && cp /er/wizard/landing.html /er-static/landing.html \
+ && cp /er/wizard/report.html  /er-static/report.html \
+ && cp /er/wizard/tabs.js      /er-static/tabs.js \
+ && cp /er/er-archipelago-check-browser.html /er-static/checks.html
+RUN cp /er/er-archipelago-questline-dag.html /er-static/questlines.html 2>/dev/null || true
 
 # ---- stage 2: python runtime (web GUI + per-room MultiServer) ----
 FROM python:3.12-slim-bookworm

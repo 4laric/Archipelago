@@ -42,6 +42,13 @@
       transition: color 0.15s;
     }
     header nav a:hover { color: #e2e8f0; }
+    /* The current tab. Underlined rather than merely brighter: "which page am I on" should not
+       depend on telling two greys apart. */
+    header nav a.on {
+      color: #e2e8f0;
+      border-bottom: 2px solid #7c6af7;
+      padding-bottom: 0.15rem;
+    }
 
     /* Donation link — always visible in nav */
     .donate-link {
@@ -247,12 +254,37 @@
 </head>
 <body>
 
+{# ============================================================================
+  THE TAB STRIP. Five destinations, same five on every page of the site, and the BUILDER IS
+  FIRST because it is what people arrive for -- it is the only surface anyone can use before
+  deciding whether to install a DLL. Hosting is one tab among them, not the front page.
+
+  🛑 THIS STRIP EXISTS TWICE, ON PURPOSE, AND THE OTHER COPY IS IN ANOTHER REPO.
+  The site is two kinds of page. These Jinja templates inherit their chrome from here. But
+  landing.html, wizard.html, checks.html and report.html are single files built in
+  er-archipelago and installed at the stable tag; they never pass through Jinja, so they cannot
+  include this. They get `er-archipelago/wizard/tabs.js`, which renders the same five links into
+  an empty `<div id="er-tabs">` -- one definition for all four of them, which is the part that
+  was actually drifting before (landing.html already hand-copies the footer for the same reason).
+
+  Why they are not BOTH tabs.js: a box with no ER tooling deployed serves no /er/tabs.js, and a
+  templated page whose only navigation came from a 404ing script would have no navigation at all.
+  So this copy is server-rendered and peliarch's own suite asserts on it -- see
+  TestTabStrip in test_app.py, which pins the exact hrefs. If you add or move a tab, that test
+  fails here and `tools/check_tabs.py` fails in er-archipelago. Two loud failures, no silent skew.
+============================================================================ #}
 <header>
   <a class="brand" href="/">Peli<span>arch</span></a>
-  <nav>
-    <a href="/">Dashboard</a>
-    <a href="/downloads">Downloads</a>
-    <a href="#contact">Contact</a>
+  <nav id="er-tabs" data-tab="{{ tab|default('') }}">
+    {#  Builder, Checks and Report all serve out of ER_STATIC_DIR. On a box with no ER tooling
+        deployed they are 404s, and a tab that 404s is worse than a tab that is not there --
+        which is the same rule the /er/ teaser on the hosting page already follows. Downloads and
+        Hosting are peliarch's own routes and are always real. #}
+    {% if er_tooling %}<a href="/er/"{% if tab == 'builder' %} class="on"{% endif %}>Builder</a>{% endif %}
+    <a href="/downloads"{% if tab == 'downloads' %} class="on"{% endif %}>Downloads</a>
+    <a href="/hosting"{% if tab == 'hosting' %} class="on"{% endif %}>Hosting</a>
+    {% if er_tooling %}<a href="/er/checks.html"{% if tab == 'checks' %} class="on"{% endif %}>Checks</a>{% endif %}
+    {% if er_tooling %}<a href="/er/report.html"{% if tab == 'report' %} class="on"{% endif %}>Report a bug</a>{% endif %}
     <a class="donate-link" href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
   </nav>
 </header>

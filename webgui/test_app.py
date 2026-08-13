@@ -195,6 +195,18 @@ def room_id(mgr):
     return room.id
 
 
+@pytest.fixture
+def running_room_id(mgr, room_id):
+    """A room that is RUNNING, which is the only state that has a connect address.
+
+    Needed because the interesting assertions about addresses are now BIDIRECTIONAL: the address
+    has to be there when the room is up and absent when it is not, and a fixture that only ever
+    produced one of those states is how the old tests came to pass off a label instead of a value.
+    """
+    mgr.start_room(room_id)
+    return room_id
+
+
 # ---------------------------------------------------------------------------
 # Test: validation helpers
 # ---------------------------------------------------------------------------
@@ -282,16 +294,18 @@ class TestGetRoom:
         resp = client.get("/room/deadbeef", headers={"Accept": "application/json"})
         assert resp.status_code == 404
 
-    def test_room_page_html_contains_connect_address(self, client, room_id):
-        """The HTML room page must render the wss:// connect address."""
-        resp = client.get(f"/room/{room_id}")
-        assert resp.status_code == 200
-        html = resp.data.decode()
-        assert "wss://" in html, "Room page must contain wss:// connect address"
+    def test_room_page_html_contains_connect_address(self, client, running_room_id):
+        """A RUNNING room's page renders its actual address.
 
-    def test_room_page_html_contains_host_and_port(self, client, room_id):
-        resp = client.get(f"/room/{room_id}")
-        html = resp.data.decode()
+        🛑 THIS TEST USED TO ASSERT `"wss://" in html` ON A ROOM THAT WAS NOT RUNNING, and it
+        passed -- off the words "wss:// (not enabled on room ports)" in a field LABEL. A substring
+        that also occurs in the page's prose is not a witness for a value. Assert the address.
+        """
+        html = client.get(f"/room/{running_room_id}").data.decode()
+        assert f"ws://{MockManager.DEFAULT_HOST}:38401" in html
+
+    def test_room_page_html_contains_host_and_port(self, client, running_room_id):
+        html = client.get(f"/room/{running_room_id}").data.decode()
         assert MockManager.DEFAULT_HOST in html, "Room page must show public_host"
         # Port 38401 is the mock port
         assert "38401" in html, "Room page must show the game port"
@@ -305,7 +319,7 @@ class TestGetRoom:
 
 
 # ---------------------------------------------------------------------------
-# Test: dashboard HTML
+# Test: the front door, the tab strip, and room creation
 # ---------------------------------------------------------------------------
 
 class TestFrontDoor:
@@ -345,8 +359,9 @@ class TestFrontDoor:
     def test_the_front_door_no_longer_lists_rooms(self, mgr, tmp_path, monkeypatch):
         """The room whose id used to be REQUIRED on this page must now be absent from it.
 
-        This is the retirement, asserted from the outside: hosting is not advertised. The room
-        itself still exists and its own page still works -- TestStartStop covers that.
+        Hosting IS advertised again -- as a tab (TestTabStrip) -- but the front door is the
+        builder's page, not a room list. A visitor who has never generated a seed should not
+        arrive at somebody else's multiworld.
         """
         monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
         (tmp_path / "landing.html").write_text("<h1>Elden Ring for Archipelago</h1>", encoding="utf-8")
@@ -357,35 +372,143 @@ class TestFrontDoor:
         assert room.id not in html
 
 
-class TestRetiredRoutes:
-    """Room creation and seed generation answer 410 GONE, not 404 and not a deleted route.
+class TestCreateRoom:
+    """Room creation works again. Retired at v0.4.0, back at v0.4.1 with the defect fixed.
 
-    🛑 TWO CALLERS EXIST IN THE WILD AND NEITHER CAN BE UPDATED BY US: an options wizard already
-    open in a browser, and the file:// wizard inside every previous release zip. Both POST here.
-    The old wizard renders `data.error` straight into its own UI, so the body has to carry a
-    readable sentence -- a bare 410 is a blank message where a player needed an instruction.
+    🛑 THE 410 THAT USED TO BE ASSERTED HERE IS GONE, BUT ITS AUDIENCE IS NOT: an options wizard
+    already open in somebody's browser, and the file:// wizard inside every previous release zip,
+    both POST here and both render `data.error` verbatim. That is why every rejection below is a
+    sentence and not a bare code -- see the 400s.
+
+    The two properties that made it safe to offer this again are in webgui/test_ports.py, because
+    they are properties of the allocator, not of this route: one port per room for the room's life,
+    and no address published unless the room is RUNNING.
     """
 
-    def test_room_creation_is_gone_and_says_why(self, client):
-        resp = client.post("/rooms", data={"name": "x"},
+
+    def test_upload_valid_returns_201_json(self, client):
+        data = {
+            "file": (io.BytesIO(_make_archipelago()), "myroom.archipelago"),
+            "name": "My Room",
+        }
+        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
+                           headers={"Accept": "application/json"})
+        assert resp.status_code == 201
+        body = resp.get_json()
+        assert "id" in body
+        assert body["name"] == "My Room"
+        assert body["status"] in ("UPLOADED", "RUNNING", "STARTING")
+
+    def test_upload_returns_connect_info(self, client):
+        data = {
+            "file": (io.BytesIO(_make_archipelago()), "myroom.archipelago"),
+            "name": "Connect Test",
+        }
+        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
+                           headers={"Accept": "application/json"})
+        assert resp.status_code == 201
+        body = resp.get_json()
+        assert "connect" in body
+        ci = body["connect"]
+        assert "host" in ci and "port" in ci and "wss" in ci
+        # wss address must contain the host and port
+        if ci["wss"]:
+            assert ci["host"] in ci["wss"]
+            assert str(ci["port"]) in ci["wss"]
+
+    def test_upload_wrong_extension_rejected(self, client):
+        data = {
+            "file": (io.BytesIO(b"dummy"), "not_a_room.txt"),
+            "name": "Bad File",
+        }
+        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
+                           headers={"Accept": "application/json"})
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_upload_size_cap_rejected(self, client, mgr):
+        # Set a tiny cap on the mock manager
+        mgr.upload_max_bytes = 100
+        # Build a zip that will pass the Flask content-length check but fail validation
+        data = {
+            "file": (io.BytesIO(_make_archipelago(200)), "big.archipelago"),
+            "name": "Oversized",
+        }
+        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
+                           headers={"Accept": "application/json"})
+        # Should be 400 (validation error from orchestrator) or 413 (Flask MAX_CONTENT_LENGTH)
+        assert resp.status_code in (400, 413)
+
+    def test_upload_no_file_rejected(self, client):
+        resp = client.post("/rooms", data={"name": "no file"},
                            content_type="multipart/form-data",
                            headers={"Accept": "application/json"})
-        assert resp.status_code == 410
-        assert "archipelago.gg" in resp.get_json()["error"]
+        assert resp.status_code == 400
 
-    def test_generate_is_gone_and_says_why(self, client):
-        resp = client.post("/generate", data={"yaml": "name: T\ngame: Clique\n"},
-                           headers={"Accept": "application/json"})
-        assert resp.status_code == 410
-        body = resp.get_json()
-        assert body["retired"] is True
-        # The old wizard prints `data.error` verbatim. If this stops being a sentence a player
-        # can act on, the wizard shows them a shrug.
-        assert "wizard" in body["error"].lower() and "archipelago.gg" in body["error"]
+    def test_html_upload_redirects_to_room(self, client):
+        """Non-JSON client gets redirected to /room/<id>."""
+        data = {
+            "file": (io.BytesIO(_make_archipelago()), "myroom.archipelago"),
+            "name": "Redirect Test",
+        }
+        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
+                           follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/room/" in resp.headers.get("Location", "")
 
     def test_existing_rooms_are_untouched(self, client, room_id):
-        """The whole reason creation was retired instead of the room routes being deleted."""
+        """Kept from the retirement suite: rooms that predate all of this still serve."""
         assert client.get(f"/room/{room_id}").status_code == 200
+
+
+class TestTabStrip:
+    """One strip, five destinations, same on every templated page -- and the BUILDER IS FIRST.
+
+    🛑 THIS IS HALF OF THE DEFINITION. The other half is er-archipelago's `wizard/tabs.js`, which
+    renders the same five links into landing.html, wizard.html, checks.html and report.html --
+    single files that never pass through Jinja and so cannot inherit base.html. Two copies is a
+    deliberate trade (a templated page whose navigation came from a 404ing script would have no
+    navigation at all), and these assertions are the price of it: change a tab here and this test
+    tells you, in this repo, that the other copy needs the same change.
+    """
+
+    TABS = ["/er/", "/downloads", "/hosting", "/er/checks.html", "/er/report.html"]
+
+    def _html(self, mgr, tmp_path, monkeypatch, path="/hosting"):
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
+        c = create_app(manager=mgr).test_client()
+        return c.get(path).data.decode()
+
+    def test_every_tab_is_present_and_in_order(self, mgr, tmp_path, monkeypatch):
+        html = self._html(mgr, tmp_path, monkeypatch)
+        found = [t for t in self.TABS if f'href="{t}"' in html]
+        assert found == self.TABS, f"missing or reordered: {found}"
+
+    def test_the_builder_comes_before_hosting(self, mgr, tmp_path, monkeypatch):
+        """The site is a yaml builder that can also host a room, not the other way round."""
+        html = self._html(mgr, tmp_path, monkeypatch)
+        assert html.index('href="/er/"') < html.index('href="/hosting"')
+
+    def test_the_current_tab_is_marked(self, mgr, tmp_path, monkeypatch):
+        html = self._html(mgr, tmp_path, monkeypatch)
+        assert '<a href="/hosting" class="on">' in html
+
+    def test_the_room_page_counts_as_hosting(self, mgr, tmp_path, monkeypatch):
+        room = mgr.create_room(name="R", file_data=_make_archipelago(),
+                               filename="t.archipelago")
+        html = self._html(mgr, tmp_path, monkeypatch, path=f"/room/{room.id}")
+        assert '<a href="/hosting" class="on">' in html
+
+    def test_tabs_that_need_er_tooling_vanish_without_it(self, mgr, monkeypatch):
+        """A tab that 404s is worse than a tab that is not there.
+
+        Builder, Checks and Report all serve out of ER_STATIC_DIR. Downloads and Hosting are
+        peliarch's own routes and must survive.
+        """
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", "")
+        html = create_app(manager=mgr).test_client().get("/hosting").data.decode()
+        assert "/er/" not in html
+        assert 'href="/downloads"' in html and 'href="/hosting"' in html
 
 
 # ---------------------------------------------------------------------------
@@ -508,45 +631,93 @@ class TestPassword:
 # ---------------------------------------------------------------------------
 
 class TestConnectAddress:
+    """The address is published when it is real and withheld when it is not.
 
-    def test_wss_address_format(self, client, room_id):
-        """The wss:// address returned must be well-formed: wss://host:PORT."""
-        resp = client.get(f"/room/{room_id}", headers={"Accept": "application/json"})
-        body = resp.get_json()
-        wss = body["connect"]["wss"]
-        if wss:
-            assert wss.startswith("wss://"), f"wss address must start with wss://, got: {wss}"
-            parts = wss[len("wss://"):].split(":")
-            assert len(parts) == 2, f"wss must be host:port, got: {wss}"
-            assert parts[1].isdigit(), f"port must be numeric, got: {parts[1]}"
+    THE MOTIVATING CASE (rule 11), 2026-08-12: five hibernated rooms each showed
+    ws://host:38400 with a Copy button, and nothing was listening on any of them. Archipelago's
+    Connect packet carries a slot name and a password and NO room identifier, so a client that
+    reached whichever server actually held that port -- with a slot name that seed happened to
+    contain -- joined the wrong multiworld silently. Hosting was scoped out over it.
 
-    def test_web_url_and_connect_address_are_different(self, client, room_id):
+    🛑 THE TESTS THAT USED TO LIVE HERE COULD NOT HAVE CAUGHT IT. One was
+    `assert "wss://" in html`, satisfied by a field label. One was `if wss:` around its
+    assertions, so it asserted nothing at all once wss became None. Both were green the whole
+    time the bug was live. Every assertion below names a state and a value.
+    """
+
+    def test_a_running_room_publishes_a_plain_ws_address(self, client, running_room_id):
+        body = client.get(f"/room/{running_room_id}",
+                          headers={"Accept": "application/json"}).get_json()
+        ci = body["connect"]
+        assert ci["live"] is True
+        assert ci["ws"] == f"ws://{MockManager.DEFAULT_HOST}:{ci['port']}"
+
+    def test_a_room_that_is_not_running_publishes_nothing(self, client, room_id):
+        """Not "" and not the port -- None. A caller must not be able to build an address."""
+        body = client.get(f"/room/{room_id}",
+                          headers={"Accept": "application/json"}).get_json()
+        ci = body["connect"]
+        assert ci["live"] is False
+        assert ci["ws"] is None and ci["wss"] is None
+        assert ci["port"] is not None, "the reserved port is still reported; it is not an address"
+
+    def test_a_hibernated_room_page_offers_no_copyable_address(self, client, running_room_id, mgr):
+        """The Copy button is the promise, so this asserts on the ADDRESS STRING, not the button.
+
+        Start it, stop it, and the address that was on the page has to be gone from the page.
         """
-        SPEC §1 hard constraint: /room/<id> (web page) and wss://host:PORT (game)
+        host = MockManager.DEFAULT_HOST
+        assert f"ws://{host}:38401" in client.get(f"/room/{running_room_id}").data.decode()
+        mgr.stop_room(running_room_id)
+        html = client.get(f"/room/{running_room_id}").data.decode()
+        assert f"ws://{host}:38401" not in html
+        assert "Nothing is listening yet" in html
+
+    def test_the_hosting_table_does_not_offer_a_sleeping_room_an_address(self, mgr, tmp_path,
+                                                                        monkeypatch):
+        """The exact surface that shipped the defect: the room list, with its Copy buttons."""
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
+        c = create_app(manager=mgr).test_client()
+        room = mgr.create_room(name="Player - Elden Ring", file_data=_make_archipelago(),
+                               filename="t.archipelago")
+        mgr.start_room(room.id)
+        mgr.stop_room(room.id)
+        html = c.get("/hosting").data.decode()
+        assert f"ws://{MockManager.DEFAULT_HOST}:38401" not in html
+        assert "copyText('ws://" not in html, "a Copy button is a promise that it works"
+        assert "reserved port 38401" in html
+
+    def test_the_page_no_longer_says_connecting_wakes_a_sleeping_room(self, client,
+                                                                     running_room_id, mgr):
+        """It never did. stop_room kills the process, so a connect to a sleeping room is refused.
+
+        Wake-on-connect needs a listener on the room's port; the room owning that port for life is
+        its prerequisite and is now true, so it is buildable. Until it is built, nothing claims it.
+        """
+        mgr.stop_room(running_room_id)
+        html = client.get(f"/room/{running_room_id}").data.decode()
+        assert "connect to wake" not in html
+        assert "wakes automatically" not in html
+        assert "Start" in html
+
+    def test_web_url_and_connect_address_are_different(self, client, running_room_id):
+        """
+        SPEC 1 hard constraint: /room/<id> (web page) and ws://host:PORT (game)
         are different addresses and must not be conflated.
         """
-        web_url = f"/room/{room_id}"
-        resp = client.get(f"/room/{room_id}", headers={"Accept": "application/json"})
-        body = resp.get_json()
-        wss = body["connect"]["wss"] or ""
-        # The web path should not appear in the wss address
-        assert room_id not in wss, (
-            f"wss address must NOT contain the room id ({room_id}); "
-            f"room identity is the port, not the path. Got: {wss}"
+        body = client.get(f"/room/{running_room_id}",
+                          headers={"Accept": "application/json"}).get_json()
+        ws = body["connect"]["ws"]
+        assert running_room_id not in ws, (
+            f"connect address must NOT contain the room id ({running_room_id}); "
+            f"room identity is the port, not the path. Got: {ws}"
         )
-
-    def test_room_html_shows_wss_not_just_path(self, client, room_id):
-        """The room page HTML must contain a wss:// address, not just the /room/<id> path."""
-        resp = client.get(f"/room/{room_id}")
-        html = resp.data.decode()
-        assert "wss://" in html, "Room page must display the wss:// game connect address"
 
     def test_room_html_explains_port_identity(self, client, room_id):
         """Room page must communicate that the port IS the room identity."""
-        resp = client.get(f"/room/{room_id}")
-        html = resp.data.decode()
-        # The page should mention port and the distinction (any phrasing)
+        html = client.get(f"/room/{room_id}").data.decode()
         assert "port" in html.lower(), "Room page must mention 'port'"
+        assert "belongs to" in html, "and that this room's port is its own"
 
 
 # ---------------------------------------------------------------------------
