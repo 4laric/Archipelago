@@ -40,6 +40,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_PORT_START = 38400
 DEFAULT_PORT_END   = 38600
 DEFAULT_IDLE_TIMEOUT = 30 * 60      # 30 minutes
+# Address-space cap for a room process. Measured 2026-08-13 on the live box: five running rooms at
+# ~162-200 MB RSS each, so 2 GB is ~10x the observed working set -- the same ratio generator.py
+# chose against its own measurement (2 GB against a 170 MB peak), and for the same reason: this is
+# a BLAST-RADIUS limit, not a diet. RLIMIT_AS caps ADDRESS SPACE, which a CPython process reserves
+# far more of than it resides in, so a cap near the RSS would kill healthy rooms.
+#
+# WHY ROOMS NEED ONE AT ALL: every room is a subprocess of the single gunicorn worker. Without a
+# per-room cap the kernel OOM killer picks a victim by size, and killing the worker takes EVERY
+# room down with it. With one, a runaway room dies alone and lands in CRASHED, where the existing
+# backoff-restart machinery (MAX_CRASH_RESTARTS) already handles it.
+DEFAULT_ROOM_MAX_AS_MB = 2048       # 0 disables
 DEFAULT_UPLOAD_MAX_BYTES = 64 * 1024 * 1024   # 64 MB
 MAX_CRASH_RESTARTS = 5
 CRASH_BACKOFF_BASE = 5.0            # seconds; doubles each restart
@@ -75,6 +86,28 @@ def _port_is_bindable(port: int) -> bool:
         except OSError:
             return False
     return True
+
+
+def _room_limits(max_address_space_mb: int):
+    """preexec_fn for a room process: caps it cannot raise. None where unsupported.
+
+    🛑 DELIBERATELY NO `os.setsid()`, unlike generator.py's equivalent. Generate spawns children, so
+    it needs its own process group to be killable as a unit; MultiServer does not, and giving a room
+    a new session would put it outside the group `stop_server` terminates -- changing the kill path
+    to fix a memory problem. One concern per change.
+
+    RLIMIT_CORE 0 rides along: a 200 MB room dumping core on a small box fills the disk that the
+    room saves live on.
+    """
+    if os.name != "posix" or not max_address_space_mb:
+        return None
+    import resource
+
+    def _apply():
+        limit = max_address_space_mb * 1024 * 1024
+        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    return _apply
 
 
 def _connect_probe(host: str, port: int) -> bool:
@@ -404,6 +437,7 @@ class RoomManager:
         port_end: int = DEFAULT_PORT_END,
         launcher: Optional[Callable] = None,
         upload_max_bytes: int = DEFAULT_UPLOAD_MAX_BYTES,
+        room_max_as_mb: int = DEFAULT_ROOM_MAX_AS_MB,
     ):
         self.data_dir = data_dir
         self.repo_dir = repo_dir
@@ -411,6 +445,7 @@ class RoomManager:
         self.port_start = port_start
         self.port_end = port_end
         self.upload_max_bytes = upload_max_bytes
+        self.room_max_as_mb = room_max_as_mb
         self._launcher = launcher  # None → use real subprocess.Popen
         self._store = RoomStore(store_path)
         self._lock = threading.Lock()
@@ -790,8 +825,12 @@ class RoomManager:
     def _spawn(self, cmd, room: Room):
         """Shared launch path: honor the test launcher override, else Popen with logs."""
         logger.info("Launch: %s", " ".join(str(c) for c in cmd))
+        # The cap goes HERE, in the one shared path, rather than in _launch_multiserver and
+        # _launch_peliarch separately -- a limit that covers one tier and not the other is a limit
+        # nobody can reason about. The mock launcher is handed it too so tests can assert it.
+        preexec = _room_limits(self.room_max_as_mb)
         if self._launcher is not None:
-            return self._launcher(cmd, cwd=self.repo_dir)
+            return self._launcher(cmd, cwd=self.repo_dir, preexec_fn=preexec)
 
         env = dict(os.environ)
         env.setdefault("SKIP_REQUIREMENTS_UPDATE", "1")
@@ -802,6 +841,7 @@ class RoomManager:
             stdout=log_file,
             stderr=subprocess.STDOUT,
             env=env,
+            preexec_fn=preexec,
         )
 
     def _idle_loop(self):
