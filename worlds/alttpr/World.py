@@ -362,12 +362,15 @@ class ALttPRWorld(World):
         # The world can create a multiworld with many players each with different options, but we only need to
         # generate for one player, hence all the "1"s everywhere.
         shuffled_doors = self.options.door_shuffle != "vanilla"
-        if self.options.pot_shuffle != "none":
-            pottery = self.options.pot_shuffle.current_key
-        elif self.options.key_drop_shuffle.value or shuffled_doors:
-            pottery = "keys"
+        if self.options.key_drop_shuffle or shuffled_doors:
+            if self.options.pot_shuffle == "cave":
+                pottery = "cavekeys"
+            elif self.options.pot_shuffle == "none":
+                pottery = "keys"
+            else:
+                pottery = self.options.pot_shuffle.current_key
         else:
-            pottery = "none"
+            pottery = self.options.pot_shuffle.current_key
 
         self.door_rando_world = DoorRandoWorld(
             1, {1: "vanilla"}, {1: False}, {1: "none"}, {1: False}, {1: self.options.entrance_shuffle.current_key},

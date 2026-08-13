@@ -122,7 +122,7 @@ class BigKeyShuffle(Toggle):
 
 
 class KeyDropShuffle(Toggle):
-    """Shuffle keys that are dropped by enemies or hidden under pots."""
+    """Shuffle keys that are dropped by enemies or hidden under pots, regardless of pot_shuffle settings."""
     display_name = "Key Drop Shuffle"
     default = False
 
