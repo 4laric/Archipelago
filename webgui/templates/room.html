@@ -4,10 +4,11 @@
 {% block content %}
 <!-- ============================================================
   Room Page: /room/<id>
-  THE MOST IMPORTANT THING HERE: the wss://host:PORT connect address.
+  THE MOST IMPORTANT THING HERE: the ws://host:PORT connect address.
   The web URL (/room/<id>) is for the management UI only.
-  The GAME address is connect.wss — a bare WebSocket port.
-  Never conflate these two.
+  The GAME address is connect.ws — a bare WebSocket port, plaintext, never fronted by Caddy.
+  Never conflate these two, and never render an address for a room that is not RUNNING:
+  connect.ws is None unless it is. See Room.connect_info.
 ============================================================ -->
 
 <!-- Breadcrumb -->
@@ -15,22 +16,6 @@
   <a href="/" style="color:#7c6af7;">Home</a>
   &nbsp;/&nbsp;
   <span style="color:#64748b;">{{ room.name }}</span>
-</div>
-
-<!-- ============================================================
-  RETIREMENT NOTICE (v0.4.0). Hosting is out of scope; this room and the others already on
-  the box keep working so nobody loses a seed mid-run, but no new ones can be created.
-  This banner is the only warning their owners get, so it says what to do next rather than
-  just that something changed.
-============================================================ -->
-<div style="border-left:3px solid #d9a53f; background:#1c1917; color:#9a8f78;
-            padding:0.85rem 1.1rem; margin-bottom:1.25rem; font-size:0.9rem; line-height:1.55;">
-  <b style="color:#d9a53f; font-weight:normal;">Room hosting is retiring.</b>
-  Peliarch no longer creates rooms or generates seeds &mdash; it is the Elden Ring options
-  wizard, the downloads and the docs now. <b style="font-weight:normal;">This room still
-  works</b> and will keep working while you finish your run. For your next seed, build the
-  yaml at <a href="/er/" style="color:#c8a95a;">/er/</a> and host at
-  <a href="https://archipelago.gg" style="color:#c8a95a;">archipelago.gg</a>.
 </div>
 
 <div style="display:flex; align-items:baseline; gap:0.75rem; margin-bottom:0.5rem; flex-wrap:wrap;">
@@ -54,10 +39,16 @@
   &nbsp;·&nbsp; Idle timeout: {{ (room.idle_timeout // 60) }} min
 </p>
 
+{#  🛑 THIS BANNER USED TO SAY "connecting will wake it in a few seconds" AND THAT IS FALSE.
+    stop_room kills the process; nothing listens on the port while a room sleeps, so a connect
+    is refused. Wake-on-connect would be a real listener on the room's port, and the room owning
+    that port permanently is its prerequisite -- which is now true, so it is buildable. It is not
+    built, so this does not claim it. #}
 {% if room.status == 'HIBERNATED' %}
 <div class="sleeping-note">
-  💤 <strong>Sleeping</strong> — this room has been hibernated due to inactivity.
-  Connecting your AP client will wake it in a few seconds.
+  💤 <strong>Sleeping</strong> — this room hibernated after being idle. Press
+  <strong>Start</strong> below to wake it; it comes back on the same port, so an address you have
+  already given out still works.
 </div>
 {% elif room.status == 'CRASHED' %}
 <div class="sleeping-note" style="background:#450a0a; color:#f87171;">
@@ -92,14 +83,22 @@
         <label>Port</label>
         <div class="val" style="color:#7dd3fc;">{{ connect.port }}</div>
       </div>
+      {#  Shown, dimmed, and labelled as NOT WORKING. Room ports are published by Compose and
+           never reach Caddy, so they speak plaintext; a player who copies this gets
+           SSLError: WRONG_VERSION_NUMBER, and that error names neither the cause nor this page. #}
       <div class="field">
-        <label>Secure URL (wss:// — after TLS setup)</label>
+        <label>wss:// (not enabled on room ports)</label>
         <div class="val" style="color:#64748b; font-size:0.82rem;">{{ connect.wss }}</div>
       </div>
     </div>
   {% else %}
     <div style="color:#475569; font-size:0.9rem; padding:0.5rem 0;">
-      No port assigned yet — start the room to get a connect address.
+      <strong style="color:#94a3b8;">Nothing is listening yet.</strong>
+      Start the room and its address appears here.
+      {% if connect.port %}
+        It will be port <code style="color:#7dd3fc;">{{ connect.port }}</code>, which belongs to
+        this room and to no other.
+      {% endif %}
     </div>
   {% endif %}
 
@@ -123,8 +122,9 @@
       <br><span style="color:#64748b;">(Browser-based clients need <code>wss://</code> — enable TLS on room ports first.)</span>
       <br><br>
       <strong style="color:#e2e8f0;">Note on sleeping rooms</strong><br>
-      If the status shows <em>Sleeping</em>, just connect — the room wakes automatically
-      within a few seconds.
+      If the status shows <em>Sleeping</em>, nothing is listening — press <em>Start</em> above
+      and try again once the status turns green. The port does not change when a room sleeps, so
+      the address stays the same one you were given.
     </div>
   </details>
 </div>
