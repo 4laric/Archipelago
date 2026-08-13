@@ -27,6 +27,7 @@ import os
 import time
 import json
 import logging
+import threading
 
 from flask import (
     Flask, request, redirect, url_for, render_template,
@@ -34,7 +35,9 @@ from flask import (
 )
 from werkzeug.exceptions import NotFound
 
-from webgui.orchestrator import RoomManager, DEFAULT_IDLE_TIMEOUT, DEFAULT_UPLOAD_MAX_BYTES
+from webgui.orchestrator import (
+    RoomManager, DEFAULT_IDLE_TIMEOUT, DEFAULT_UPLOAD_MAX_BYTES, DEFAULT_ROOM_MAX_AS_MB,
+)
 from webgui import generator
 from webgui import releases
 
@@ -60,6 +63,33 @@ DEFAULT_REPO_DIR    = os.environ.get("REPO_DIR",    os.path.dirname(os.path.dirn
 DEFAULT_PORT_START  = int(os.environ.get("PORT_START", "38400"))
 DEFAULT_PORT_END    = int(os.environ.get("PORT_END",   "38600"))
 LOG_TAIL_LINES      = int(os.environ.get("LOG_TAIL_LINES", "200"))
+ROOM_MAX_AS_MB      = int(os.environ.get("ROOM_MAX_AS_MB", str(DEFAULT_ROOM_MAX_AS_MB)))
+
+# ---- the SSE log stream, which is the scarcest resource on this box ----------------------------
+#
+# 🛑 THREADS ARE THE CEILING AND IT FAILS SILENTLY. gunicorn runs ONE worker with 64 threads, and
+# every open /room/<id>/logs?stream=1 parks one for the life of the connection. When they are all
+# parked the whole site stops answering with no crash, no log line and the container still "Up":
+# gunicorn's --timeout only fires on workers that stop heartbeating, and a gthread worker keeps
+# heartbeating from its main loop while every request thread is blocked. This wedged the site for
+# three weeks (2026-07-17 -> 2026-08-07) at the previous value of 8 threads.
+#
+# Raising the thread count bought headroom and fixed nothing: a browser tab left open overnight
+# holds its thread overnight. Two caps close it properly, and they are different failures:
+#
+#   SSE_MAX_SECONDS  -- no single stream outlives this. The tab does not notice: EventSource
+#                       reconnects on close by itself, and room.html retries on error anyway, so a
+#                       recycled stream is invisible to a watching human and releases the thread of
+#                       one who stopped watching.
+#   SSE_MAX_STREAMS  -- a hard ceiling well below the thread count, so log viewers can never take
+#                       the last thread away from the rest of the site. Past it the answer is a 503
+#                       that says what to do, not a hang.
+# 🛑 0 MEANS NO CAP, for an operator who decides this is wrong for their box -- and that escape
+# hatch is exactly what hung the test suite on its first run, because `x if SSE_MAX_SECONDS else
+# None` reads 0 as "unlimited" and a test that set 0 expecting "immediate" never got its generator
+# back. Keep the hatch; do not test with it.
+SSE_MAX_SECONDS     = int(os.environ.get("SSE_MAX_SECONDS", "900"))
+SSE_MAX_STREAMS     = int(os.environ.get("SSE_MAX_STREAMS", "24"))
 
 # Seed generation. AP_ROOT is the checkout generation runs in -- the pinned deploy tree with the
 # apworlds installed. It defaults to the repo this app ships inside, which is right for the box and
@@ -129,10 +159,16 @@ def create_app(manager: RoomManager = None) -> Flask:
             public_host=DEFAULT_PUBLIC_HOST,
             port_start=DEFAULT_PORT_START,
             port_end=DEFAULT_PORT_END,
+            room_max_as_mb=ROOM_MAX_AS_MB,
         )
         manager.start_idle_reaper()
 
     app.extensions["room_manager"] = manager
+    # Live count of open SSE log streams. One process, so a plain int under a lock is the whole
+    # mechanism -- and it must stay that way: a second gunicorn worker would give each its own
+    # counter and its own share of threads, which is a different design, not a bigger number.
+    app.extensions["sse_streams"] = 0
+    app.extensions["sse_lock"] = threading.Lock()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -493,29 +529,68 @@ def create_app(manager: RoomManager = None) -> Flask:
         stream = request.args.get("stream", "0") == "1"
 
         if stream:
+            # Claim a slot BEFORE building the response -- check and increment under one lock, so
+            # two simultaneous viewers cannot both pass a ceiling that only has room for one.
+            #
+            # 🛑 RELEASED FROM TWO PLACES, IDEMPOTENTLY, BECAUSE NEITHER ALONE IS ENOUGH, and a
+            # leaked slot is permanent -- worse than the hang this exists to prevent.
+            #   * the generator's `finally` covers the normal life of a stream: exhausted by the
+            #     deadline, or GeneratorExit when the browser goes away.
+            #   * `call_on_close` covers a response that is closed before the generator is ever
+            #     iterated, where the body is never entered and no `finally` runs.
+            # The first is the one the tests exercise; the second is the one a real WSGI server
+            # exercises. `_released` makes running both harmless.
+            with app.extensions["sse_lock"]:
+                if app.extensions["sse_streams"] >= SSE_MAX_STREAMS:
+                    return jsonify(
+                        error=(
+                            f"Too many log viewers open ({SSE_MAX_STREAMS}). Close a room page "
+                            f"and try again; the log tail below still works."
+                        ),
+                    ), 503
+                app.extensions["sse_streams"] += 1
+
+            _released = {"done": False}
+
+            def release():
+                with app.extensions["sse_lock"]:
+                    if not _released["done"]:
+                        _released["done"] = True
+                        app.extensions["sse_streams"] -= 1
+
             # SSE: tail the log file and stream new lines
             def generate():
                 import time as _time
-                last_pos = 0
-                log_path = room.log_path
-                while True:
-                    if log_path and os.path.exists(log_path):
-                        with open(log_path) as lf:
-                            lf.seek(last_pos)
-                            new = lf.read()
-                            last_pos = lf.tell()
-                        if new:
-                            for line in new.splitlines():
-                                yield f"data: {json.dumps(line)}\n\n"
-                    else:
-                        yield ": keepalive\n\n"
-                    _time.sleep(1)
+                try:
+                    last_pos = 0
+                    log_path = room.log_path
+                    deadline = _time.time() + SSE_MAX_SECONDS if SSE_MAX_SECONDS else None
+                    while deadline is None or _time.time() < deadline:
+                        if log_path and os.path.exists(log_path):
+                            with open(log_path) as lf:
+                                lf.seek(last_pos)
+                                new = lf.read()
+                                last_pos = lf.tell()
+                            if new:
+                                for line in new.splitlines():
+                                    yield f"data: {json.dumps(line)}\n\n"
+                        else:
+                            yield ": keepalive\n\n"
+                        _time.sleep(1)
+                    # Ending the stream is not an error and does not need announcing to the user:
+                    # the browser's EventSource reconnects on close by itself. The comment line is
+                    # for whoever reads a capture and wonders why the stream stopped.
+                    yield ": stream recycled after SSE_MAX_SECONDS; reconnecting\n\n"
+                finally:
+                    release()
 
-            return Response(
+            resp = Response(
                 stream_with_context(generate()),
                 content_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
+            resp.call_on_close(release)
+            return resp
 
         lines = int(request.args.get("lines", LOG_TAIL_LINES))
         return jsonify(lines=mgr().log_tail(room_id, lines=lines))

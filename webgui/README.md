@@ -143,9 +143,28 @@ Each room runs as a subprocess. For production use, add cgroup or container limi
 (CPU/mem/fd) per room. See `HOSTING.md §5`.
 
 ### Room limits
-- Upload size cap: 64 MB (configurable).
-- Port range: 38400–38600 by default (200 rooms max simultaneously running).
-- Idle hibernate at 30 minutes by default (configurable per room).
+
+- **Upload size cap:** 64 MB (configurable).
+- **Port range:** 38400–38599 by default. 🛑 That is **200 rooms EVER, not 200 running at once** —
+  a room holds its port for as long as the room exists, which is what stops a stale connect address
+  resolving to somebody else's seed. Delete finished rooms, or widen `PORT_START`/`PORT_END` **and**
+  the published range in `docker-compose.yml`; the two are asserted equal by `test_limits.py`,
+  because a room on an unpublished port looks healthy from the inside and is unreachable.
+- **Room address space:** `ROOM_MAX_AS_MB`, 2048 by default, 0 to disable. Rooms are subprocesses
+  of the single gunicorn worker, so an OOM kill aimed at the worker takes every room with it; the
+  cap makes one runaway room die alone, into `CRASHED`, where backoff-restart already handles it.
+  Measured 2026-08-13 on the live box: a running room is **~160–200 MB RSS**. The cap is on ADDRESS
+  SPACE, which CPython reserves far more of than it resides in, so it is ~10× the working set on
+  purpose — a blast radius, not a diet.
+- **Log streams:** `SSE_MAX_STREAMS` 24, `SSE_MAX_SECONDS` 900. Each open `/room/<id>/logs?stream=1`
+  parks one of gunicorn's 64 threads for the life of the connection, and when they are all parked
+  the site stops answering with **no crash, no log line and the container still "Up"** — a gthread
+  worker heartbeats from its main loop while every request thread is blocked, so `--timeout` never
+  fires. This wedged the box for three weeks, 2026-07-17 to 2026-08-07. Streams now recycle
+  (EventSource reconnects by itself, so nobody watching notices) and the ceiling sits well under
+  the thread count so viewers cannot take the last thread from the rest of the site.
+- **Idle hibernate** at 30 minutes by default, configurable per room. This is the real capacity
+  multiplier: what costs RAM is rooms RUNNING at once, not rooms that exist.
 
 ---
 

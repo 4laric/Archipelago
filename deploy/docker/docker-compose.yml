@@ -21,9 +21,29 @@ services:
       ER_STATIC_DIR: /er-static      # what /er serves (wizard + check browser)
     volumes:
       - peliarch_data:/data          # uploads, room saves, logs, rooms.json
-    # port-per-room: expose the SAME range the orchestrator allocates (PORT_START..PORT_END)
+    # port-per-room: publish the SAME range the orchestrator allocates (PORT_START..PORT_END).
+    #
+    # 🛑 THE DEFAULTS HERE AND IN THE APP MUST AGREE, and until 2026-08-13 they did not: this said
+    # 38463 while webgui/orchestrator.DEFAULT_PORT_END was 38600. With PORT_END set in .env they
+    # agreed by accident; with it ABSENT the allocator would hand a room a port nobody could reach,
+    # and the room would look perfectly healthy from the inside -- listening, `alive: true`, and
+    # unreachable. Aligned to 38400-38599 (== range(38400, 38600), which is what the allocator
+    # walks) and asserted by webgui/test_limits.py so they cannot drift again.
+    #
+    # 🛑 THE RANGE IS NOT FREE, AND THE COST IS PER PORT, NOT PER ROOM. With Docker's default
+    # userland proxy, every published port gets its own `docker-proxy` process whether or not a
+    # room is using it -- a few MB each, resident from `up` onward. Count them before widening:
+    #     ps -o rss= -C docker-proxy | awk '{s+=$1} END {print NR" procs, "s/1024" MB"}'
+    # If that is a number you mind, set `"userland-proxy": false` in /etc/docker/daemon.json and
+    # restart the daemon: forwarding falls back to iptables DNAT, which costs nothing per port.
+    # Do that BEFORE widening the range, not after.
+    #
+    # 🛑 A PORT IS NOW HELD FOR THE LIFE OF A ROOM, not just while it runs (the sticky-port fix
+    # that made connect addresses safe). So this range caps rooms that EXIST, not rooms running at
+    # once: 200 ports is 200 rooms ever, until finished rooms are deleted. _pick_free_port says so
+    # in its error rather than failing obscurely.
     ports:
-      - "${PORT_START:-38400}-${PORT_END:-38463}:${PORT_START:-38400}-${PORT_END:-38463}"
+      - "${PORT_START:-38400}-${PORT_END:-38599}:${PORT_START:-38400}-${PORT_END:-38599}"
     expose:
       - "8080"                       # website, internal — Caddy proxies it
     restart: unless-stopped
