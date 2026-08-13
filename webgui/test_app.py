@@ -29,6 +29,7 @@ if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 
 from webgui.orchestrator import Room, validate_archipelago_upload
+from webgui import app as app_module
 from webgui.app import create_app, DONATION_URL, CONTACT_DISCORD, CONTACT_GITHUB
 
 
@@ -176,16 +177,22 @@ def client(app):
 
 
 @pytest.fixture
-def room_id(client):
-    """Upload a valid room and return its id."""
-    data = {
-        "file": (io.BytesIO(_make_archipelago()), "test.archipelago"),
-        "name": "Test Room",
-    }
-    resp = client.post("/rooms", data=data, content_type="multipart/form-data",
-                       headers={"Accept": "application/json"})
-    assert resp.status_code == 201, resp.data
-    return resp.get_json()["id"]
+def room_id(mgr):
+    """An existing room, created through the MANAGER rather than through POST /rooms.
+
+    🛑 IT WENT THROUGH THE ROUTE UNTIL v0.4.0, and that route is now 410 Gone -- room creation
+    was retired when hosting was scoped out. Every start/stop/logs/delete test depends on this
+    fixture, so leaving it pointed at the retired route would have turned "we stopped offering
+    room creation" into "the whole room suite fails", which says nothing about whether EXISTING
+    rooms still work -- and existing rooms still working is the entire point of retiring the
+    creation path rather than deleting the room routes.
+    """
+    room = mgr.create_room(
+        name="Test Room",
+        file_data=_make_archipelago(),
+        filename="test.archipelago",
+    )
+    return room.id
 
 
 # ---------------------------------------------------------------------------
@@ -225,80 +232,20 @@ class TestValidation:
 
 
 # ---------------------------------------------------------------------------
-# Test: POST /rooms (upload)
+# Test: POST /rooms (upload) -- RETIRED AT v0.4.0
+#
+# `TestCreateRoom` drove the upload path through the route: 201 + connect info on success, and
+# 400/413 on a wrong extension, an oversize file, or no file at all.
+#
+# 🛑 THE VALIDATION THOSE TESTS EXERCISED IS NOT GONE AND IS STILL TESTED. It lives in
+# `orchestrator.validate_archipelago_upload`, and `TestValidation` above drives it DIRECTLY --
+# which is the stronger test anyway: it asserts the validator, not the validator-as-seen-through-
+# a-route that no longer exists. What was lost with the route is only the wiring assertion, and
+# there is nothing left for it to be wired to.
+#
+# The route's own contract now -- 410, with a body the OLD wizard can print -- is in
+# TestRetiredRoutes below.
 # ---------------------------------------------------------------------------
-
-class TestCreateRoom:
-
-    def test_upload_valid_returns_201_json(self, client):
-        data = {
-            "file": (io.BytesIO(_make_archipelago()), "myroom.archipelago"),
-            "name": "My Room",
-        }
-        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
-                           headers={"Accept": "application/json"})
-        assert resp.status_code == 201
-        body = resp.get_json()
-        assert "id" in body
-        assert body["name"] == "My Room"
-        assert body["status"] in ("UPLOADED", "RUNNING", "STARTING")
-
-    def test_upload_returns_connect_info(self, client):
-        data = {
-            "file": (io.BytesIO(_make_archipelago()), "myroom.archipelago"),
-            "name": "Connect Test",
-        }
-        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
-                           headers={"Accept": "application/json"})
-        assert resp.status_code == 201
-        body = resp.get_json()
-        assert "connect" in body
-        ci = body["connect"]
-        assert "host" in ci and "port" in ci and "wss" in ci
-        # wss address must contain the host and port
-        if ci["wss"]:
-            assert ci["host"] in ci["wss"]
-            assert str(ci["port"]) in ci["wss"]
-
-    def test_upload_wrong_extension_rejected(self, client):
-        data = {
-            "file": (io.BytesIO(b"dummy"), "not_a_room.txt"),
-            "name": "Bad File",
-        }
-        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
-                           headers={"Accept": "application/json"})
-        assert resp.status_code == 400
-        assert "error" in resp.get_json()
-
-    def test_upload_size_cap_rejected(self, client, mgr):
-        # Set a tiny cap on the mock manager
-        mgr.upload_max_bytes = 100
-        # Build a zip that will pass the Flask content-length check but fail validation
-        data = {
-            "file": (io.BytesIO(_make_archipelago(200)), "big.archipelago"),
-            "name": "Oversized",
-        }
-        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
-                           headers={"Accept": "application/json"})
-        # Should be 400 (validation error from orchestrator) or 413 (Flask MAX_CONTENT_LENGTH)
-        assert resp.status_code in (400, 413)
-
-    def test_upload_no_file_rejected(self, client):
-        resp = client.post("/rooms", data={"name": "no file"},
-                           content_type="multipart/form-data",
-                           headers={"Accept": "application/json"})
-        assert resp.status_code == 400
-
-    def test_html_upload_redirects_to_room(self, client):
-        """Non-JSON client gets redirected to /room/<id>."""
-        data = {
-            "file": (io.BytesIO(_make_archipelago()), "myroom.archipelago"),
-            "name": "Redirect Test",
-        }
-        resp = client.post("/rooms", data=data, content_type="multipart/form-data",
-                           follow_redirects=False)
-        assert resp.status_code == 302
-        assert "/room/" in resp.headers.get("Location", "")
 
 
 # ---------------------------------------------------------------------------
@@ -361,36 +308,84 @@ class TestGetRoom:
 # Test: dashboard HTML
 # ---------------------------------------------------------------------------
 
-class TestDashboard:
+class TestFrontDoor:
+    """`/` is the Elden Ring landing page as of v0.4.0, not the rooms dashboard.
 
-    def test_dashboard_loads(self, client):
-        """Renders, and carries the product's own name.
+    🛑 THE OLD TESTS HERE ASSERTED THE DASHBOARD RENDERED ROOM IDS. Deleting them without
+    replacement would have left the front door with no test at all, which is the failure the
+    old `test_dashboard_loads` docstring was itself about: it asserted "GoArchipelago" for weeks
+    after the product was renamed and nobody noticed, because a permanently-red test trains
+    everyone to read red as normal. A silently-absent test is the same lesson without the red.
 
-        This asserted "GoArchipelago" until 2026-08-08 and had been failing for as long as the
-        product has been called Peliarch -- a permanently-red test, which is worse than no test:
-        it trains everyone to read a red suite as normal. Same rot as the wizard's lint rules,
-        one repo over.
-        """
-        resp = client.get("/")
+    The page itself is NOT vendored here -- it is built and gated in er-archipelago and installed
+    into ER_STATIC_DIR by `deploy_wizard.sh --landing`. So what is testable from this repo is the
+    ROUTING contract, and that is what these assert.
+    """
+
+    def test_front_door_serves_the_landing_file_when_deployed(self, mgr, tmp_path, monkeypatch):
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
+        (tmp_path / "landing.html").write_text("<h1>Elden Ring for Archipelago</h1>", encoding="utf-8")
+        c = create_app(manager=mgr).test_client()
+        resp = c.get("/")
         assert resp.status_code == 200
-        html = resp.data.decode()
-        assert "Peliarch" in html
+        assert "Elden Ring for Archipelago" in resp.data.decode()
 
-    def test_dashboard_has_donation_link(self, client):
-        resp = client.get("/")
-        html = resp.data.decode()
-        assert DONATION_URL in html, "Dashboard must contain the donation URL"
-        assert "coffee" in html.lower()
+    def test_front_door_says_which_command_was_not_run_when_undeployed(self, mgr, monkeypatch):
+        """Rule 2: an empty result is a failure, not a clean run.
 
-    def test_dashboard_shows_rooms(self, client, room_id):
-        resp = client.get("/")
-        html = resp.data.decode()
-        assert room_id in html, "Dashboard must show existing room IDs"
+        A box with no landing page deployed must not answer 200-with-nothing or 404. It says the
+        deploy step was not run and names it, because the person seeing this is the operator.
+        """
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", "")
+        c = create_app(manager=mgr).test_client()
+        resp = c.get("/")
+        assert resp.status_code == 503
+        assert "deploy_wizard.sh --landing" in resp.data.decode()
 
-    def test_dashboard_empty_state(self, client):
-        resp = client.get("/")
-        html = resp.data.decode()
-        assert "archipelago" in html.lower()
+    def test_the_front_door_no_longer_lists_rooms(self, mgr, tmp_path, monkeypatch):
+        """The room whose id used to be REQUIRED on this page must now be absent from it.
+
+        This is the retirement, asserted from the outside: hosting is not advertised. The room
+        itself still exists and its own page still works -- TestStartStop covers that.
+        """
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
+        (tmp_path / "landing.html").write_text("<h1>Elden Ring for Archipelago</h1>", encoding="utf-8")
+        room = mgr.create_room(name="Secret Room", file_data=_make_archipelago(),
+                               filename="test.archipelago")
+        c = create_app(manager=mgr).test_client()
+        html = c.get("/").data.decode()
+        assert room.id not in html
+
+
+class TestRetiredRoutes:
+    """Room creation and seed generation answer 410 GONE, not 404 and not a deleted route.
+
+    🛑 TWO CALLERS EXIST IN THE WILD AND NEITHER CAN BE UPDATED BY US: an options wizard already
+    open in a browser, and the file:// wizard inside every previous release zip. Both POST here.
+    The old wizard renders `data.error` straight into its own UI, so the body has to carry a
+    readable sentence -- a bare 410 is a blank message where a player needed an instruction.
+    """
+
+    def test_room_creation_is_gone_and_says_why(self, client):
+        resp = client.post("/rooms", data={"name": "x"},
+                           content_type="multipart/form-data",
+                           headers={"Accept": "application/json"})
+        assert resp.status_code == 410
+        assert "archipelago.gg" in resp.get_json()["error"]
+
+    def test_generate_is_gone_and_says_why(self, client):
+        resp = client.post("/generate", data={"yaml": "name: T\ngame: Clique\n"},
+                           headers={"Accept": "application/json"})
+        assert resp.status_code == 410
+        body = resp.get_json()
+        assert body["retired"] is True
+        # The old wizard prints `data.error` verbatim. If this stops being a sentence a player
+        # can act on, the wizard shows them a shrug.
+        assert "wizard" in body["error"].lower() and "archipelago.gg" in body["error"]
+
+    def test_existing_rooms_are_untouched(self, client, room_id):
+        """The whole reason creation was retired instead of the room routes being deleted."""
+        assert client.get(f"/room/{room_id}").status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -559,18 +554,26 @@ class TestConnectAddress:
 # ---------------------------------------------------------------------------
 
 class TestDonationLink:
+    """🛑 `/` DROPPED OUT OF THESE AT v0.4.0 AND THAT IS A REAL LOSS, NOT A TIDY-UP.
 
-    def test_donation_on_dashboard(self, client):
-        resp = client.get("/")
-        assert DONATION_URL in resp.data.decode()
+    The front page is now a static file served from ER_STATIC_DIR, built and gated in the
+    er-archipelago repo. It does not pass through Jinja, so the context processor cannot reach
+    it and no assertion made here can cover it -- this repo does not own that file's contents.
+
+    So the coverage genuinely narrowed, and pretending otherwise by deleting the tests quietly
+    would be the worse move. What is asserted here is what this app still renders. The landing
+    page carries its own donation and contact links, and er-archipelago is where that is gated.
+    """
 
     def test_donation_on_room_page(self, client, room_id):
         resp = client.get(f"/room/{room_id}")
         assert DONATION_URL in resp.data.decode()
 
-    def test_donation_link_text_mentions_coffee(self, client):
-        resp = client.get("/")
-        html = resp.data.decode()
+    def test_donation_on_downloads(self, client):
+        """The second templated page, so the context processor is still proven on more than one
+        view -- which was the whole point of moving it off render_template kwargs."""
+        html = client.get("/downloads").data.decode()
+        assert DONATION_URL in html
         assert "coffee" in html.lower()
 
 
@@ -583,23 +586,28 @@ class TestContactDetails:
     remembering to pass it. These tests are the reason the values come from a context
     processor rather than a render_template kwarg: they hit two unrelated views."""
 
-    @pytest.mark.parametrize("path", ["/", "ROOM"])
-    def test_contact_on_every_page(self, client, room_id, path):
-        html = client.get("/" if path == "/" else f"/room/{room_id}").data.decode()
+    @pytest.mark.parametrize("path", ["ROOM", "/downloads"])
+    def test_contact_on_every_templated_page(self, client, room_id, path):
+        """🛑 "/" WAS ONE OF THESE PARAMS AND IS NOT ANY MORE. It is a static file from another
+        repo as of v0.4.0 (see TestFrontDoor), so it cannot be reached by a context processor
+        and cannot be asserted from here. /downloads takes its place: two unrelated views is
+        what makes this a test of the processor rather than of one template.
+        """
+        html = client.get(f"/room/{room_id}" if path == "ROOM" else path).data.decode()
         assert CONTACT_DISCORD in html, f"{path} is missing the Discord handle"
         assert CONTACT_GITHUB in html, f"{path} is missing the source link"
 
-    def test_discord_handle_is_not_rendered_as_a_link(self, client):
+    def test_discord_handle_is_not_rendered_as_a_link(self, client, room_id):
         """A Discord handle has no profile URL. Rendering it as an <a href> would ship a
         dead link on every page, which is worse than plain text."""
-        html = client.get("/").data.decode()
+        html = client.get(f"/room/{room_id}").data.decode()
         assert f'href="{CONTACT_DISCORD}"' not in html
         assert f"<code>{CONTACT_DISCORD}</code>" in html
 
     def test_donation_still_present_after_moving_to_context_processor(self, client, room_id):
         """Guards the refactor itself: donation_url stopped being a kwarg on three
         render_template calls, so prove the processor actually feeds them."""
-        for html in (client.get("/").data.decode(),
+        for html in (client.get("/downloads").data.decode(),
                      client.get(f"/room/{room_id}").data.decode()):
             assert DONATION_URL in html
 
