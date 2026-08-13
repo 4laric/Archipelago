@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import List, TYPE_CHECKING
 
-from BaseClasses import Item, ItemClassification
+from BaseClasses import Item, ItemClassification, Location
 
 from .ALttPDoorRandomizer.BaseClasses import LocationType
 from .ALttPDoorRandomizer.Items import ItemFactory, item_table
@@ -445,10 +445,6 @@ def place_pre_fill_items(world: ALttPRWorld) -> None:
                 new_item = ALttPRItem(upgrade.name, ItemClassification.useful, ItemFactory(upgrade.name, 1).code, world.player)
                 world.multiworld.get_location(location.name, world.player).place_locked_item(new_item)
 
-    if world.options.pot_shuffle != "none":
-        # There is a technical limit of 256 multiworld items under pots
-        shop_locations = [location for location in world.door_rando_world.get_locations() if location.type == LocationType.Pot]
-
 
 def place_escape_key(possible_locations: List[str], world: ALttPRWorld, key_size: str) -> str:
     world.random.shuffle(possible_locations)
@@ -461,3 +457,44 @@ def place_escape_key(possible_locations: List[str], world: ALttPRWorld, key_size
 
     # Should never reach this
     raise Exception("ALttPR: Could not place escape small key, no empty locations found.")
+
+
+
+def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item], filleritempool: List[Item], fill_locations: List[Location], player: int, random) -> None:
+    # There is a technical limit of 256 multiworld items under pots
+    local_pot_item_names = [
+        "Arrows (5)",
+        "Big Magic",
+        "Chicken",
+        "Rupee (1)",
+        "Rupees (5)",
+        "Single Bomb",
+        "Small Heart",
+        "Small Magic",
+        "Triforce Piece",
+    ]
+
+    pot_locations = [location for location in fill_locations if location.player == player and "Pot" in location.name]
+    if len(pot_locations) > 256:
+        pot_locations.sort()
+        random.shuffle(pot_locations)
+        local_pot_locations = pot_locations[256:]
+        nothing_items = [item for item in filleritempool if item.player == player and item.name == "Nothing"]
+        local_pot_items = [item for item in filleritempool if item.player == player and item.name in local_pot_item_names]
+        local_pot_items.extend([item for item in progitempool if item.player == player and item.name in local_pot_item_names])
+        local_pot_items.sort()
+        random.shuffle(local_pot_items)
+        local_pot_items.extend(nothing_items)
+        assert len(local_pot_items) >= len(local_pot_locations), "Not enough local junk items to place in pots"
+
+        # TODO: A smarter algorithm could distribute items better, so that e.g. two Zelda players with lottery
+        # would always have 256 pots filled with the other player's items
+        for i in range(0, len(local_pot_locations)):
+            item = local_pot_items[i]
+            location = local_pot_locations[i]
+            location.place_locked_item(item)
+            fill_locations.remove(location)
+            if item.name == "Triforce Piece":
+                progitempool.remove(item)
+            else:
+                filleritempool.remove(item)

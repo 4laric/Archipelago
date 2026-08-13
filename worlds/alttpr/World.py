@@ -8,7 +8,7 @@ import typing
 from urllib.request import urlopen
 
 # Imports of base Archipelago modules must be absolute.
-from BaseClasses import CollectionState, Entrance, Item, ItemClassification, Region, MultiWorld, Tutorial
+from BaseClasses import CollectionState, Entrance, Item, ItemClassification, Location, MultiWorld, Tutorial
 from Options import OptionError
 import settings
 from worlds.AutoWorld import LogicMixin, WebWorld, World
@@ -193,6 +193,14 @@ class ALttPRWorld(World):
     def generate_basic(self):
         # This should be done in pre_fill, but Universal Tracker doesn't run pre_fill and needs to see the event items
         Items.place_pre_fill_items(self)
+
+
+    def fill_hook(self,
+                  progitempool: typing.List[Item],
+                  usefulitempool: typing.List[Item],
+                  filleritempool: typing.List[Item],
+                  fill_locations: typing.List[Location]) -> None:
+        Items.place_junk_items_in_pots(progitempool, usefulitempool, filleritempool, fill_locations, self.player, self.random)
 
 
     # Our world class must also have a create_item function that can create any one of our items by name at any time.

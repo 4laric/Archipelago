@@ -89,7 +89,7 @@ class TriforceHuntGoal(Range):
     """How many Triforce Pieces are required to beat the game when the goal is set to Triforce Hunt or Ganon Hunt"""
     display_name = "Triforce Hunt Goal"
     range_start = 1
-    range_end = 50  # TODO: What should the max number of triforce pieces be?
+    range_end = 850
     default = 20
 
 
@@ -97,7 +97,7 @@ class TriforceHuntTotal(Range):
     """How many Triforce Pieces are in the item pool when the goal is set to Triforce Hunt or Ganon Hunt"""
     display_name = "Triforce Hunt Total"
     range_start = 1
-    range_end = 50
+    range_end = 850
     default = 30
 
 
