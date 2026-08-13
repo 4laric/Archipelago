@@ -7,7 +7,8 @@ Two halves, deliberately:
     Generate.py, so the timeout, the process-group kill, the plando default and the
     no-artifact-on-success path are all tested WITHOUT needing an Archipelago checkout or 3 seconds
     of real fill. A stub is the only way to test "what happens when generation hangs".
-  * `TestGenerateRoute` drives POST /generate through the Flask test client with generation
+  * The POST /generate route was RETIRED at v0.4.0; its 410 contract is asserted in
+    test_app.py::TestRetiredRoutes. What follows drives the MODULE, which outlived the route
     monkeypatched, so the route's contract -- status codes, which failure is 422 vs 504, and that a
     generated seed reaches create_room -- is asserted without a fill either.
 
@@ -35,7 +36,6 @@ if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 
 from webgui import generator
-from webgui.app import create_app
 
 
 GOOD_YAML = b"name: Tester\ngame: Clique\nClique:\n  hard_mode: false\n"
@@ -198,257 +198,18 @@ class TestGenerateLimits:
 
 
 # ---------------------------------------------------------------------------
-# POST /generate -- the route's contract
+# POST /generate -- RETIRED AT v0.4.0
+#
+# 🛑 THE ROUTE IS GONE; webgui/generator.py IS NOT. Everything above this line drives the
+# generator MODULE directly -- validate_yamls, the wall timeout, RLIMIT_AS/CPU, plando off, the
+# process-group kill, the temp-workspace cleanup. Those tests stay, and they stay for a reason:
+# the module is the part that was hard to get right, and if seed generation ever comes back it
+# comes back on top of exactly this, already proven. Deleting them with the route would throw
+# away the expensive half to tidy up the cheap half.
+#
+# What used to live below was `TestGenerateRoute`, which drove POST /generate through the Flask
+# test client. The route now answers 410 Gone. Its contract -- 410, and a body carrying a
+# sentence the OLD wizard can print, because old wizards in browsers and in every previous
+# release zip still POST here -- is asserted in test_app.py::TestRetiredRoutes, next to the
+# retired /rooms route it shares its reasoning with.
 # ---------------------------------------------------------------------------
-
-class _Room:
-    def __init__(self):
-        self.id, self.name, self.status, self.tier = "abc12345", "seed", "RUNNING", "Standard"
-        self.port, self.password, self.created_at = 38400, None, 0
-        self.last_active_at, self.crash_count, self.idle_timeout = 0, 0, 1800
-
-    def connect_info(self, host):
-        return {"host": host, "port": self.port}
-
-
-class _Mgr:
-    public_host = "peliarch.test"
-
-    def __init__(self):
-        self.created = []
-
-    def create_room(self, **kw):
-        self.created.append(kw)
-        return _Room()
-
-    def start_room(self, room_id):
-        return _Room()
-
-    def list_rooms(self):
-        return []
-
-
-@pytest.fixture
-def client_and_mgr():
-    mgr = _Mgr()
-    app = create_app(manager=mgr)
-    app.config["TESTING"] = True
-    return app.test_client(), mgr
-
-
-JSON = {"Accept": "application/json"}
-
-
-class TestGenerateRoute:
-
-    def test_a_yaml_becomes_a_running_room(self, client_and_mgr, monkeypatch):
-        client, mgr = client_and_mgr
-        monkeypatch.setattr(generator, "generate",
-                            lambda *a, **k: generator.GeneratedSeed(b"PK\x03\x04", "AP_9.zip", ""))
-        r = client.post("/generate", data={"yaml": GOOD_YAML.decode(), "name": "wizard seed"},
-                        headers=JSON)
-        assert r.status_code == 201, r.data
-        assert r.get_json()["seed_file"] == "AP_9.zip"
-        assert mgr.created and mgr.created[0]["file_data"] == b"PK\x03\x04"
-        assert mgr.created[0]["name"] == "wizard seed"
-
-    def test_uploaded_player_files_work_too(self, client_and_mgr, monkeypatch):
-        client, _ = client_and_mgr
-        seen = {}
-
-        def _fake(yamls, root, **kw):
-            seen["n"] = len(yamls)
-            return generator.GeneratedSeed(b"PK\x03\x04", "AP_9.zip", "")
-        monkeypatch.setattr(generator, "generate", _fake)
-        data = {"file": [(io.BytesIO(GOOD_YAML), "a.yaml"), (io.BytesIO(GOOD_YAML), "b.yaml")]}
-        r = client.post("/generate", data=data, headers=JSON,
-                        content_type="multipart/form-data")
-        assert r.status_code == 201, r.data
-        assert seen["n"] == 2
-
-    def test_no_yaml_is_a_400(self, client_and_mgr):
-        client, _ = client_and_mgr
-        r = client.post("/generate", data={}, headers=JSON)
-        assert r.status_code == 400
-        assert "No yaml" in r.get_json()["error"]
-
-    def test_an_invalid_yaml_is_rejected_before_generating(self, client_and_mgr, monkeypatch):
-        client, _ = client_and_mgr
-
-        def _boom(*a, **k):
-            raise AssertionError("generate must not run on a yaml that failed validation")
-        monkeypatch.setattr(generator, "generate", _boom)
-        r = client.post("/generate", data={"yaml": "name: Tester\n"}, headers=JSON)
-        assert r.status_code == 400
-        assert "game:" in r.get_json()["error"]
-
-    def test_a_failed_fill_is_422_not_500(self, client_and_mgr, monkeypatch):
-        """The user's options did not generate. That is their problem to fix, not a server error."""
-        client, _ = client_and_mgr
-
-        def _fail(*a, **k):
-            raise generator.GenerationError("Generation failed.", detail="FillError: ...")
-        monkeypatch.setattr(generator, "generate", _fail)
-        r = client.post("/generate", data={"yaml": GOOD_YAML.decode()}, headers=JSON)
-        assert r.status_code == 422
-        assert "FillError" in r.get_json()["detail"]
-
-    def test_a_timeout_is_504(self, client_and_mgr, monkeypatch):
-        client, _ = client_and_mgr
-
-        def _slow(*a, **k):
-            raise generator.GenerationError("too long", timed_out=True)
-        monkeypatch.setattr(generator, "generate", _slow)
-        r = client.post("/generate", data={"yaml": GOOD_YAML.decode()}, headers=JSON)
-        assert r.status_code == 504
-
-    def test_generation_can_be_switched_off(self, monkeypatch):
-        """A box under load, or one without an AP tree, must be able to refuse cleanly."""
-        import webgui.app as appmod
-        monkeypatch.setattr(appmod, "GENERATE_ENABLED", False)
-        app = appmod.create_app(manager=_Mgr())
-        app.config["TESTING"] = True
-        r = app.test_client().post("/generate", data={"yaml": GOOD_YAML.decode()}, headers=JSON)
-        assert r.status_code == 503
-
-
-# ---------------------------------------------------------------------------
-# The one test that uses the real thing
-# ---------------------------------------------------------------------------
-
-def test_real_generate_smoke():
-    """Generate a real seed with the real Generate.py, if this tree can.
-
-    SKIPS rather than passes when it cannot -- the stubs above would otherwise let a completely
-    broken generation path sit behind a green suite.
-    """
-    root = os.environ.get("AP_ROOT", REPO_DIR)
-    if not os.path.isfile(os.path.join(root, "Generate.py")):
-        pytest.skip("no Generate.py at AP_ROOT -- real generation is NOT covered on this box")
-    try:
-        import worlds  # noqa: F401
-    except Exception as e:
-        pytest.skip(f"AP tree is not importable here ({e}) -- real generation is NOT covered")
-    try:
-        got = generator.generate([GOOD_YAML], root, seed=1, timeout=300)
-    except generator.GenerationError as e:
-        # An AP checkout with optional world dependencies missing (zilliandomizer, pymem, ...) fails
-        # at world-import time, before anything this module owns is exercised. That is a fact about
-        # the BOX, not a regression, and it must SKIP saying so rather than go red and train people
-        # to ignore this test -- or pass quietly and pretend the path is covered.
-        missing = [ln for ln in e.detail.splitlines() if "ModuleNotFoundError" in ln]
-        if missing:
-            pytest.skip("AP tree is missing an optional world dependency (%s) -- real generation is "
-                        "NOT covered on this box" % missing[-1].strip())
-        raise
-    assert got.data[:2] == b"PK", "output is not a zip"
-    assert len(got.data) > 1024
-
-
-# ---------------------------------------------------------------------------
-# /er static tooling -- the thing that makes the wizard's host button reachable
-# ---------------------------------------------------------------------------
-
-class TestErStatic:
-    """The wizard is served from HERE or its Generate & host button cannot exist.
-
-    That button is same-origin only by design (a file:// page has a `null` origin, and the
-    alternative is `Access-Control-Allow-Origin: *` on the one endpoint that spends CPU on a
-    stranger's input). So "is the wizard served same-origin" is a functional requirement, not a
-    convenience, and it gets tests.
-    """
-
-    def _client(self, monkeypatch, static_dir):
-        import webgui.app as appmod
-        monkeypatch.setattr(appmod, "ER_STATIC_DIR", static_dir)
-        app = appmod.create_app(manager=_Mgr())
-        app.config["TESTING"] = True
-        return app.test_client()
-
-    def test_serves_the_wizard(self, tmp_path, monkeypatch):
-        (tmp_path / "wizard.html").write_text("<h1>wizard</h1>", encoding="utf-8")
-        r = self._client(monkeypatch, str(tmp_path)).get("/er/wizard.html")
-        assert r.status_code == 200
-        assert b"wizard" in r.data
-
-    def test_bare_er_is_the_wizard(self, tmp_path, monkeypatch):
-        (tmp_path / "wizard.html").write_text("<h1>wizard</h1>", encoding="utf-8")
-        r = self._client(monkeypatch, str(tmp_path)).get("/er/")
-        assert r.status_code == 200
-        assert b"wizard" in r.data
-
-    def test_serves_the_check_browser_too(self, tmp_path, monkeypatch):
-        (tmp_path / "er-archipelago-check-browser.html").write_text("checks", encoding="utf-8")
-        r = self._client(monkeypatch, str(tmp_path)).get("/er/er-archipelago-check-browser.html")
-        assert r.status_code == 200
-
-    def test_missing_file_is_a_404_not_a_500(self, tmp_path, monkeypatch):
-        r = self._client(monkeypatch, str(tmp_path)).get("/er/nope.html")
-        assert r.status_code == 404
-
-    def test_unconfigured_host_says_so(self, monkeypatch):
-        r = self._client(monkeypatch, "").get("/er/wizard.html")
-        assert r.status_code == 404
-        assert "ER_STATIC_DIR" in r.get_json()["error"]
-
-    def test_cannot_escape_the_static_dir(self, tmp_path, monkeypatch):
-        """A traversal must not reach the room store, the AP tree, or anything else on the box."""
-        secret = tmp_path / "secret.txt"
-        secret.write_text("do not serve me", encoding="utf-8")
-        static = tmp_path / "static"
-        static.mkdir()
-        (static / "wizard.html").write_text("ok", encoding="utf-8")
-        client = self._client(monkeypatch, str(static))
-        for attempt in ("/er/../secret.txt", "/er/..%2fsecret.txt", "/er/%2e%2e/secret.txt"):
-            r = client.get(attempt)
-            assert r.status_code in (301, 308, 404), (attempt, r.status_code)
-            assert b"do not serve me" not in r.data, f"{attempt} escaped ER_STATIC_DIR"
-
-
-# ---------------------------------------------------------------------------
-# The dashboard only advertises what this box can actually do
-# ---------------------------------------------------------------------------
-
-class TestDashboardAdvertisesHonestly:
-    """A link to /er/ on a host without the ER tooling is a 404 with extra steps, and telling a
-    visitor they can build a seed here when GENERATE_ENABLED=0 is worse. The template asks rather
-    than assuming, and this pins both directions -- an "it should be obvious" that was in fact
-    wrong on the live site for a day, which said "hosting only" while /generate was serving.
-    """
-
-    def _client(self, monkeypatch, *, er_dir="", generate=True, ap_root=""):
-        import webgui.app as appmod
-        monkeypatch.setattr(appmod, "ER_STATIC_DIR", er_dir)
-        monkeypatch.setattr(appmod, "GENERATE_ENABLED", generate)
-        monkeypatch.setattr(appmod, "AP_ROOT", ap_root)
-        app = appmod.create_app(manager=_Mgr())
-        app.config["TESTING"] = True
-        return app.test_client()
-
-    def test_offers_the_wizard_when_the_tooling_is_deployed(self, tmp_path, monkeypatch):
-        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
-        html = self._client(monkeypatch, er_dir=str(tmp_path)).get("/").data.decode()
-        assert "/er/" in html and "options wizard" in html.lower()
-
-    def test_stays_quiet_about_the_wizard_when_it_is_not(self, monkeypatch):
-        html = self._client(monkeypatch, er_dir="").get("/").data.decode()
-        assert "/er/" not in html
-
-    def test_does_not_claim_generation_without_an_ap_tree(self, tmp_path, monkeypatch):
-        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
-        html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path)).get("/").data.decode()
-        assert "starts the room here" not in html, \
-            "no Generate.py at AP_ROOT, so the box cannot generate -- do not advertise it"
-
-    def test_claims_generation_when_it_really_can(self, tmp_path, monkeypatch):
-        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
-        (tmp_path / "Generate.py").write_text("# real enough", encoding="utf-8")
-        html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path)).get("/").data.decode()
-        assert "starts the room here" in html
-
-    def test_generation_switched_off_is_not_advertised(self, tmp_path, monkeypatch):
-        (tmp_path / "wizard.html").write_text("w", encoding="utf-8")
-        (tmp_path / "Generate.py").write_text("#", encoding="utf-8")
-        html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path),
-                            generate=False).get("/").data.decode()
-        assert "starts the room here" not in html
