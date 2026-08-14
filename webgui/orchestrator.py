@@ -79,8 +79,28 @@ def free_port(preferred: int, port_end: int = DEFAULT_PORT_END) -> int:
 
 
 def _port_is_bindable(port: int) -> bool:
-    """True if nothing is currently holding `port` on this box."""
+    """True if nothing is currently holding `port` on this box.
+
+    🛑 SO_REUSEADDR, AND THE PROBE IS WRONG WITHOUT IT. This asks one question on behalf of
+    `start_room`: will MultiServer be able to bind? MultiServer reaches bind through asyncio's
+    `create_server`, which sets `reuse_address=True` on POSIX -- so a bare bind here answers a
+    STRICTER question than the one being asked, and the difference is exactly the TIME_WAIT window
+    after a room's own listener closes. THE MOTIVATING CASE (rule 11), 2026-08-13: a room was
+    hibernated mid-session, the player pressed Start twice within five seconds, and both refused
+    with "something else is holding it; check for an orphaned server process" -- about the room's
+    own cooling socket. There was no orphan to find, and the message sent an operator looking for
+    one.
+
+    Measured, both states, on this box:
+
+        while something is LISTENing   plain bind EADDRINUSE   SO_REUSEADDR bind EADDRINUSE
+        after a close, in TIME_WAIT    plain bind EADDRINUSE   SO_REUSEADDR bind OK
+
+    So the guard keeps the whole of its purpose -- a live server on the port still refuses, which
+    is the case it was written for -- and stops refusing for a reason MultiServer would not have.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("0.0.0.0", port))
         except OSError:
@@ -161,6 +181,35 @@ def port_is_listening(port: int, host: str = "127.0.0.1") -> bool:
     if readable:
         return False
     return _connect_probe(host, port)
+
+
+def connections_on_port(port: int) -> Optional[int]:
+    """How many ESTABLISHED connections that port is carrying, or None if we cannot tell.
+
+    The same table, the same reason: `/proc/net/tcp{,6}` column 3 is the state, `0A` is LISTEN and
+    `01` is ESTABLISHED, and reading it touches nothing. 🛑 A connect probe is NOT available for
+    this question -- connecting and closing is what filled every room log with
+    `connection rejected (400 Bad Request)` every five seconds, and counting players by opening
+    connections to them would be that defect with a worse motive.
+
+    None means the table could not be read, and it is NOT the same as zero: the caller must treat
+    "cannot tell" as "assume someone is playing". Hibernating a live game to save a few MB is a
+    much worse trade than leaving an empty room up until the next pass.
+    """
+    target = f"{port:04X}"
+    total, readable = 0, False
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(path) as fh:
+                rows = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        readable = True
+        for row in rows:
+            cols = row.split()
+            if len(cols) > 3 and cols[3] == "01" and cols[1].rsplit(":", 1)[-1].upper() == target:
+                total += 1
+    return total if readable else None
 
 
 def wait_for_port(host: str, port: int, timeout: float = 60.0) -> bool:
@@ -610,8 +659,10 @@ class RoomManager:
                 # Loud on purpose. Quietly picking a different port is how a player ends up
                 # connected to a stranger's multiworld with no error on either side.
                 raise RuntimeError(
-                    f"Port {port} belongs to room {room.id} but something else is holding it; "
-                    f"not starting. Check for an orphaned server process on that port."
+                    f"Port {port} belongs to room {room.id} but something else is LISTENING on "
+                    f"it; not starting. This is not a socket cooling down from this room's own "
+                    f"last run -- TIME_WAIT is excluded -- so look for another server process on "
+                    f"that port."
                 )
             # Tier selects the backend: Large rooms run the Go server (peliarch),
             # everything else runs stock MultiServer.
@@ -722,10 +773,16 @@ class RoomManager:
             logger.warning("log_tail error: %s", e)
             return []
 
-    def touch_activity(self, room_id: str):
+    def touch_activity(self, room_id: str, when: Optional[float] = None):
+        """Record that a room is in use. `when` exists so one reaper pass uses ONE clock.
+
+        The pass compares `now - last_active_at` against the timeout; if the refresh stamped
+        `time.time()` while the comparison used a `now` passed in, the two would disagree by
+        however long the pass took -- and in a test with an injected clock, by hours.
+        """
         room = self._store.get(room_id)
         if room:
-            room.last_active_at = time.time()
+            room.last_active_at = time.time() if when is None else when
             self._store.put(room)
 
     def start_idle_reaper(self):
@@ -844,21 +901,47 @@ class RoomManager:
             preexec_fn=preexec,
         )
 
+    def hibernate_idle_rooms(self, now: Optional[float] = None):
+        """One pass of the reaper: refresh activity from the wire, then sleep what is idle.
+
+        🛑🛑 THE REFRESH IS THE WHOLE FIX. `last_active_at` had exactly two writers -- `start_room`
+        and `touch_activity` -- and `touch_activity` had NO CALLER anywhere in this codebase, so
+        `idle_secs` was not idleness at all. It was UPTIME, and every room was hibernated exactly
+        `idle_timeout` after it started with its players still connected and mid-send. THE
+        MOTIVATING CASE (rule 11), 2026-08-13: a room went down under someone thirty minutes in,
+        an orderly `server closing` in its log, reported as a crash because that is what it looks
+        like from the inside. The site's own copy -- "a room sleeps when nobody has been connected
+        for a while" -- described a thing nothing measured.
+
+        A room is active while its port is carrying connections. That is the sentence the copy
+        promises, and `connections_on_port` is the honest reading of it.
+        """
+        now = time.time() if now is None else now
+        for room in self._store.all():
+            if room.status != "RUNNING" or not room.port:
+                continue
+            live = connections_on_port(room.port)
+            if live is None or live > 0:
+                # None = the table would not read. Ignorance keeps the room UP, on purpose.
+                self.touch_activity(room.id, now)
+
+        for room in self._store.all():
+            if room.status != "RUNNING":
+                continue
+            idle_secs = now - room.last_active_at
+            if idle_secs >= room.idle_timeout:
+                logger.info(
+                    "Room %s idle for %.0f s (no connections) → hibernating", room.id, idle_secs
+                )
+                try:
+                    self.stop_room(room.id)
+                except Exception as e:
+                    logger.warning("Hibernate error for room %s: %s", room.id, e)
+
     def _idle_loop(self):
         while not self._stop_idle.wait(timeout=60):
             now = time.time()
-            for room in self._store.all():
-                if room.status != "RUNNING":
-                    continue
-                idle_secs = now - room.last_active_at
-                if idle_secs >= room.idle_timeout:
-                    logger.info(
-                        "Room %s idle for %.0f s → hibernating", room.id, idle_secs
-                    )
-                    try:
-                        self.stop_room(room.id)
-                    except Exception as e:
-                        logger.warning("Hibernate error for room %s: %s", room.id, e)
+            self.hibernate_idle_rooms(now)
 
             # Crash-restart (with backoff)
             for room in self._store.all():

@@ -225,3 +225,33 @@ class TestStartRefusesAnOccupiedPort:
             assert mgr.get_room(a.id).port == a.port, "the room keeps its port; it just did not start"
         finally:
             squatter.close()
+
+    def test_a_socket_cooling_down_from_this_room_is_not_a_squatter(self, tmp_path):
+        """TIME_WAIT is not an occupied port, and refusing on it strands the room for a minute.
+
+        THE MOTIVATING CASE (rule 11), 2026-08-13: a room was hibernated out from under a live
+        game, the player pressed Start twice inside five seconds, and both attempts refused with
+        "something else is holding it; check for an orphaned server process". The holder was the
+        room's own listener, closed seconds earlier and still in TIME_WAIT. MultiServer would have
+        bound it without complaint -- asyncio's `create_server` sets `reuse_address=True` on POSIX
+        -- so the probe was answering a stricter question than the one being asked.
+
+        The socket dance below is the deterministic way to produce that state: the SERVER side
+        closes first, so TIME_WAIT lands here rather than on the client.
+        """
+        mgr = _manager(tmp_path)
+        a = _room(mgr, "a")
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", a.port))
+        listener.listen(1)
+        client = socket.create_connection(("127.0.0.1", a.port))
+        accepted, _ = listener.accept()
+        accepted.close()          # server closes first -> TIME_WAIT on this side
+        client.close()
+        listener.close()
+
+        room = mgr.start_room(a.id)
+        assert room.status == "RUNNING", "a room refused to restart over its own cooling socket"
+        assert room.port == a.port
