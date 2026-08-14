@@ -79,8 +79,28 @@ def free_port(preferred: int, port_end: int = DEFAULT_PORT_END) -> int:
 
 
 def _port_is_bindable(port: int) -> bool:
-    """True if nothing is currently holding `port` on this box."""
+    """True if nothing is currently holding `port` on this box.
+
+    🛑 SO_REUSEADDR, AND THE PROBE IS WRONG WITHOUT IT. This asks one question on behalf of
+    `start_room`: will MultiServer be able to bind? MultiServer reaches bind through asyncio's
+    `create_server`, which sets `reuse_address=True` on POSIX -- so a bare bind here answers a
+    STRICTER question than the one being asked, and the difference is exactly the TIME_WAIT window
+    after a room's own listener closes. THE MOTIVATING CASE (rule 11), 2026-08-13: a room was
+    hibernated mid-session, the player pressed Start twice within five seconds, and both refused
+    with "something else is holding it; check for an orphaned server process" -- about the room's
+    own cooling socket. There was no orphan to find, and the message sent an operator looking for
+    one.
+
+    Measured, both states, on this box:
+
+        while something is LISTENing   plain bind EADDRINUSE   SO_REUSEADDR bind EADDRINUSE
+        after a close, in TIME_WAIT    plain bind EADDRINUSE   SO_REUSEADDR bind OK
+
+    So the guard keeps the whole of its purpose -- a live server on the port still refuses, which
+    is the case it was written for -- and stops refusing for a reason MultiServer would not have.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("0.0.0.0", port))
         except OSError:
@@ -639,8 +659,10 @@ class RoomManager:
                 # Loud on purpose. Quietly picking a different port is how a player ends up
                 # connected to a stranger's multiworld with no error on either side.
                 raise RuntimeError(
-                    f"Port {port} belongs to room {room.id} but something else is holding it; "
-                    f"not starting. Check for an orphaned server process on that port."
+                    f"Port {port} belongs to room {room.id} but something else is LISTENING on "
+                    f"it; not starting. This is not a socket cooling down from this room's own "
+                    f"last run -- TIME_WAIT is excluded -- so look for another server process on "
+                    f"that port."
                 )
             # Tier selects the backend: Large rooms run the Go server (peliarch),
             # everything else runs stock MultiServer.
