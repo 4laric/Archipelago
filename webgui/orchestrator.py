@@ -163,6 +163,35 @@ def port_is_listening(port: int, host: str = "127.0.0.1") -> bool:
     return _connect_probe(host, port)
 
 
+def connections_on_port(port: int) -> Optional[int]:
+    """How many ESTABLISHED connections that port is carrying, or None if we cannot tell.
+
+    The same table, the same reason: `/proc/net/tcp{,6}` column 3 is the state, `0A` is LISTEN and
+    `01` is ESTABLISHED, and reading it touches nothing. 🛑 A connect probe is NOT available for
+    this question -- connecting and closing is what filled every room log with
+    `connection rejected (400 Bad Request)` every five seconds, and counting players by opening
+    connections to them would be that defect with a worse motive.
+
+    None means the table could not be read, and it is NOT the same as zero: the caller must treat
+    "cannot tell" as "assume someone is playing". Hibernating a live game to save a few MB is a
+    much worse trade than leaving an empty room up until the next pass.
+    """
+    target = f"{port:04X}"
+    total, readable = 0, False
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(path) as fh:
+                rows = fh.read().splitlines()[1:]
+        except OSError:
+            continue
+        readable = True
+        for row in rows:
+            cols = row.split()
+            if len(cols) > 3 and cols[3] == "01" and cols[1].rsplit(":", 1)[-1].upper() == target:
+                total += 1
+    return total if readable else None
+
+
 def wait_for_port(host: str, port: int, timeout: float = 60.0) -> bool:
     end = time.time() + timeout
     while time.time() < end:
@@ -722,10 +751,16 @@ class RoomManager:
             logger.warning("log_tail error: %s", e)
             return []
 
-    def touch_activity(self, room_id: str):
+    def touch_activity(self, room_id: str, when: Optional[float] = None):
+        """Record that a room is in use. `when` exists so one reaper pass uses ONE clock.
+
+        The pass compares `now - last_active_at` against the timeout; if the refresh stamped
+        `time.time()` while the comparison used a `now` passed in, the two would disagree by
+        however long the pass took -- and in a test with an injected clock, by hours.
+        """
         room = self._store.get(room_id)
         if room:
-            room.last_active_at = time.time()
+            room.last_active_at = time.time() if when is None else when
             self._store.put(room)
 
     def start_idle_reaper(self):
@@ -844,21 +879,47 @@ class RoomManager:
             preexec_fn=preexec,
         )
 
+    def hibernate_idle_rooms(self, now: Optional[float] = None):
+        """One pass of the reaper: refresh activity from the wire, then sleep what is idle.
+
+        🛑🛑 THE REFRESH IS THE WHOLE FIX. `last_active_at` had exactly two writers -- `start_room`
+        and `touch_activity` -- and `touch_activity` had NO CALLER anywhere in this codebase, so
+        `idle_secs` was not idleness at all. It was UPTIME, and every room was hibernated exactly
+        `idle_timeout` after it started with its players still connected and mid-send. THE
+        MOTIVATING CASE (rule 11), 2026-08-13: a room went down under someone thirty minutes in,
+        an orderly `server closing` in its log, reported as a crash because that is what it looks
+        like from the inside. The site's own copy -- "a room sleeps when nobody has been connected
+        for a while" -- described a thing nothing measured.
+
+        A room is active while its port is carrying connections. That is the sentence the copy
+        promises, and `connections_on_port` is the honest reading of it.
+        """
+        now = time.time() if now is None else now
+        for room in self._store.all():
+            if room.status != "RUNNING" or not room.port:
+                continue
+            live = connections_on_port(room.port)
+            if live is None or live > 0:
+                # None = the table would not read. Ignorance keeps the room UP, on purpose.
+                self.touch_activity(room.id, now)
+
+        for room in self._store.all():
+            if room.status != "RUNNING":
+                continue
+            idle_secs = now - room.last_active_at
+            if idle_secs >= room.idle_timeout:
+                logger.info(
+                    "Room %s idle for %.0f s (no connections) → hibernating", room.id, idle_secs
+                )
+                try:
+                    self.stop_room(room.id)
+                except Exception as e:
+                    logger.warning("Hibernate error for room %s: %s", room.id, e)
+
     def _idle_loop(self):
         while not self._stop_idle.wait(timeout=60):
             now = time.time()
-            for room in self._store.all():
-                if room.status != "RUNNING":
-                    continue
-                idle_secs = now - room.last_active_at
-                if idle_secs >= room.idle_timeout:
-                    logger.info(
-                        "Room %s idle for %.0f s → hibernating", room.id, idle_secs
-                    )
-                    try:
-                        self.stop_room(room.id)
-                    except Exception as e:
-                        logger.warning("Hibernate error for room %s: %s", room.id, e)
+            self.hibernate_idle_rooms(now)
 
             # Crash-restart (with backoff)
             for room in self._store.all():
