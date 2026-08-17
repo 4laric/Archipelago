@@ -261,20 +261,28 @@ class PrizeShuffle(Toggle):
 
 
 class PotShuffle(Choice):
-    """Pots now contain randomized items. Any pots that haven't been checked will have their color changed.
+    """Pots now contain randomized items. Any pots that haven't been checked will have their color changed. A max of 256 multiworld items can be under pots.
     - None - No pots are in the pool, like normal randomizer
     - Key Pots - The pots that have keys are in the pool
     - Cave Pots - The pots that are not found in dungeons are in the pool (includes Spike Cave large block)
     - Cave + Keys Pots - Both non-dungeon pots and pots that used to have keys
     - Dungeon Pots - The pots that are in dungeons
     - Lottery - All pots and large blocks are in the pool"""
-    display_name = "PotShuffle"
+    display_name = "Pot Shuffle"
     option_none = 0
     option_keys = 1
     option_cave = 2
     option_cavekeys = 3
     option_dungeon = 4
     option_lottery = 5
+
+
+class LocalFillPercent(Range):
+    """Force a percentage of extra filler items from pot shuffle into your local world."""
+    display_name = "Local Fill Percent"
+    range_start = 0
+    range_end = 100
+    default = 0
 
 
 class FluteShuffle(Choice):
@@ -460,6 +468,7 @@ class ALttPROptions(PerGameCommonOptions):
     prize_shuffle: PrizeShuffle
     flute_shuffle: FluteShuffle
     pot_shuffle: PotShuffle
+    local_fill_percent: LocalFillPercent
     pre_activated_flute: PreActivatedFlute
     pseudoboots: Pseudoboots
     mirror_scroll: MirrorScroll
@@ -501,6 +510,7 @@ alttpr_option_groups: list[OptionGroup] = [
             Shopsanity,
             PrizeShuffle,
             PotShuffle,
+            LocalFillPercent,
         ],
     ),
     OptionGroup(

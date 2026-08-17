@@ -200,7 +200,7 @@ class ALttPRWorld(World):
                   usefulitempool: typing.List[Item],
                   filleritempool: typing.List[Item],
                   fill_locations: typing.List[Location]) -> None:
-        Items.place_junk_items_in_pots(progitempool, usefulitempool, filleritempool, fill_locations, self.player, self.random)
+        Items.place_junk_items_in_pots(progitempool, usefulitempool, filleritempool, fill_locations, self)
 
 
     # Our world class must also have a create_item function that can create any one of our items by name at any time.

@@ -460,12 +460,14 @@ def place_escape_key(possible_locations: List[str], world: ALttPRWorld, key_size
 
 
 
-def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item], filleritempool: List[Item], fill_locations: List[Location], player: int, random) -> None:
+def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item], filleritempool: List[Item], fill_locations: List[Location], world) -> None:
     # There is a technical limit of 256 multiworld items under pots
     local_pot_item_names = [
         "Arrows (5)",
         "Big Magic",
+        "Blue Shield",
         "Chicken",
+        "Red Shield",
         "Rupee (1)",
         "Rupees (5)",
         "Single Bomb",
@@ -474,17 +476,20 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
         "Triforce Piece",
     ]
 
-    pot_locations = [location for location in fill_locations if location.player == player and "Pot" in location.name]
+    nothing_items = [item for item in filleritempool if item.player == world.player and item.name == "Nothing"]
+    local_pot_items = ([item for item in filleritempool if item.player == world.player and item.name in local_pot_item_names])
+    num_filler_items = len(local_pot_items) + len(nothing_items)
+    local_pot_items.extend([item for item in progitempool if item.player == world.player and item.name in local_pot_item_names])
+    local_pot_items.sort()
+    world.random.shuffle(local_pot_items)
+    local_pot_items.extend(nothing_items)
+    pot_locations = [location for location in fill_locations if location.player == world.player and "Pot" in location.name]
+    num_filler_items_placed = 0
+
     if len(pot_locations) > 256:
         pot_locations.sort()
-        random.shuffle(pot_locations)
+        world.random.shuffle(pot_locations)
         local_pot_locations = pot_locations[256:]
-        nothing_items = [item for item in filleritempool if item.player == player and item.name == "Nothing"]
-        local_pot_items = [item for item in filleritempool if item.player == player and item.name in local_pot_item_names]
-        local_pot_items.extend([item for item in progitempool if item.player == player and item.name in local_pot_item_names])
-        local_pot_items.sort()
-        random.shuffle(local_pot_items)
-        local_pot_items.extend(nothing_items)
         assert len(local_pot_items) >= len(local_pot_locations), "Not enough local junk items to place in pots"
 
         # TODO: A smarter algorithm could distribute items better, so that e.g. two Zelda players with lottery
@@ -498,3 +503,23 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
                 progitempool.remove(item)
             else:
                 filleritempool.remove(item)
+                num_filler_items_placed = num_filler_items_placed + 1
+
+    local_fill_percent = world.options.local_fill_percent
+    if local_fill_percent > 0:
+        num_filler_items_to_place = num_filler_items * (local_fill_percent / 100)
+        junk_items = ([item for item in filleritempool if item.player == world.player and (item.name in local_pot_item_names or item.name == "Nothing")])
+        junk_items.sort()
+        world.random.shuffle(junk_items)
+
+        locations = [location for location in fill_locations if location.player == world.player]
+        locations.sort()
+        world.random.shuffle(locations)
+
+        while num_filler_items_to_place > num_filler_items_placed:
+            item = junk_items.pop(0)
+            location = locations.pop(0)
+            location.place_locked_item(item)
+            filleritempool.remove(item)
+            fill_locations.remove(location)
+            num_filler_items_placed = num_filler_items_placed + 1
