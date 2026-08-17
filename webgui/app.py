@@ -267,6 +267,8 @@ def create_app(manager: RoomManager = None) -> Flask:
             "downloads.html",
             tab="downloads",
             rel=releases.get_releases(),
+            dev=releases.get_dev_release(),
+            channels_url=releases.CHANNELS_URL,
             nexus_url=releases.NEXUS_URL,
             game_github_url=releases.GAME_GITHUB_URL,
             releases_index=releases.GAME_GITHUB_URL.rstrip("/") + "/releases",

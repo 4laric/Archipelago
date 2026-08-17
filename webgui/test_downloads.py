@@ -69,9 +69,17 @@ APWORLD_MISSING = [
              [_asset("ER-Archipelago-v0.3.10.zip"), _asset("eldenring.apworld", 1369262)]),
 ]
 
+DEV = _release(
+    "dev", "2026-08-17T12:00:00Z",
+    [_asset("ER-Archipelago-dev.zip", 120000000), _asset("eldenring-dev.apworld", 1400000)],
+    prerelease=True,
+)
+CHANNELS = "stable\tv0.3.10\t2026-08-10\n" "beta\tmain\t2026-08-11\n"
+
 
 @pytest.fixture(autouse=True)
-def _clean_cache():
+def _clean_cache(monkeypatch):
+    monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: CHANNELS)
     releases.reset_cache()
     yield
     releases.reset_cache()
@@ -109,6 +117,13 @@ class TestResolve:
         assert rel.ok
         assert rel.tag == "v0.3.10"
 
+    def test_stable_follows_the_ledger_not_a_newer_unpromoted_tag(self, stub, monkeypatch):
+        newer = _release("v0.3.11", "2026-08-11T03:00:16Z",
+                         [_asset("ER-Archipelago-v0.3.11.zip"), _asset("eldenring.apworld")])
+        stub([newer] + COMPLETE)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: CHANNELS)
+        assert releases.get_releases().tag == "v0.3.10"
+
     def test_both_assets_come_from_one_tag(self, stub):
         """The invariant. Not 'both are present' -- both are present FROM THE SAME RELEASE."""
         stub(COMPLETE)
@@ -119,13 +134,15 @@ class TestResolve:
         # The bundle names its version; the apworld does not, so the tag in its URL is the check.
         assert "/download/" in apworld.url
 
-    def test_a_missing_asset_is_not_backfilled_from_an_older_tag(self, stub):
+    def test_a_missing_asset_is_not_backfilled_from_an_older_tag(self, stub, monkeypatch):
         """v0.3.11 has no apworld. The resolved asset must be UNAVAILABLE, not silently v0.3.10.
 
         Backfilling is the tempting behaviour and it is the bug: it hands a visitor a v0.3.11
         bundle and a v0.3.10 apworld under one 'latest release' heading.
         """
         stub(APWORLD_MISSING)
+        monkeypatch.setattr(releases, "_fetch_channels",
+                            lambda timeout: "stable\tv0.3.11\t2026-08-12\nbeta\tmain\t2026-08-12\n")
         rel = releases.get_releases()
         assert rel.tag == "v0.3.11"
         apworld = rel.asset("apworld")
@@ -140,6 +157,19 @@ class TestResolve:
                        prerelease=True),
               _release("v0.3.99", "2026-08-13T00:00:00Z", [], draft=True)] + COMPLETE)
         assert releases.get_releases().tag == "v0.3.10"
+
+    def test_dev_is_a_named_prerelease_channel_not_the_latest_stable(self, stub):
+        stub([DEV] + COMPLETE)
+        assert releases.get_releases().tag == "v0.3.10"
+        dev = releases.get_dev_release()
+        assert dev.ok and dev.tag == "dev"
+        assert dev.asset("bundle").filename == "ER-Archipelago-dev.zip"
+        assert dev.asset("apworld").filename == "eldenring-dev.apworld"
+
+    def test_an_arbitrary_prerelease_is_not_the_dev_channel(self, stub):
+        stub([_release("v0.4.0-rc1", "2026-08-17T12:00:00Z",
+                       [_asset("ER-Archipelago-v0.4.0-rc1.zip")], prerelease=True)])
+        assert not releases.get_dev_release().ok
 
     def test_ordering_is_by_published_at_not_payload_order(self, stub):
         stub(list(reversed(COMPLETE)))
@@ -249,8 +279,18 @@ class TestDownloadsPage:
         assert releases.NEXUS_URL in html
         assert releases.GAME_GITHUB_URL in html
 
-    def test_a_missing_apworld_is_labelled_with_its_older_tag(self, client):
+    def test_development_channel_is_separate_and_warns_about_the_icon(self, client):
+        html = client([DEV] + COMPLETE).get("/downloads").data.decode()
+        assert "Development build" in html
+        assert "ER-Archipelago-dev.zip" in html
+        assert "eldenring-dev.apworld" in html
+        assert "Telescope icon" in html
+        assert releases.CHANNELS_URL in html
+
+    def test_a_missing_apworld_is_labelled_with_its_older_tag(self, client, monkeypatch):
         """The older-tag link must never appear without the older tag written on it."""
+        monkeypatch.setattr(releases, "_fetch_channels",
+                            lambda timeout: "stable\tv0.3.11\t2026-08-12\nbeta\tmain\t2026-08-12\n")
         html = client(APWORLD_MISSING).get("/downloads").data.decode()
         assert "did not publish a bare apworld" in html
         # The offered fallback is present AND named.
