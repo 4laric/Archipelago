@@ -255,7 +255,7 @@
 <body>
 
 {# ============================================================================
-  THE TAB STRIP. Five destinations, same five on every page of the site, and the BUILDER IS
+  THE TAB STRIP. Six destinations, same six on every page of the site, and the BUILDER IS
   FIRST because it is what people arrive for -- it is the only surface anyone can use before
   deciding whether to install a DLL. Hosting is one tab among them, not the front page.
 
@@ -263,7 +263,7 @@
   The site is two kinds of page. These Jinja templates inherit their chrome from here. But
   landing.html, wizard.html, checks.html and report.html are single files built in
   er-archipelago and installed at the stable tag; they never pass through Jinja, so they cannot
-  include this. They get `er-archipelago/wizard/tabs.js`, which renders the same five links into
+  include this. They get `er-archipelago/wizard/tabs.js`, which renders the same six links into
   an empty `<div id="er-tabs">` -- one definition for all four of them, which is the part that
   was actually drifting before (landing.html already hand-copies the footer for the same reason).
 
@@ -276,13 +276,14 @@
 <header>
   <a class="brand" href="/">Peli<span>arch</span></a>
   <nav id="er-tabs" data-tab="{{ tab|default('') }}">
-    {#  Builder, Checks and Report all serve out of ER_STATIC_DIR. On a box with no ER tooling
+    {#  Builder, Questlines, Checks and Report all serve out of ER_STATIC_DIR. On a box with no ER tooling
         deployed they are 404s, and a tab that 404s is worse than a tab that is not there --
         which is the same rule the /er/ teaser on the hosting page already follows. Downloads and
         Hosting are peliarch's own routes and are always real. #}
     {% if er_tooling %}<a href="/er/"{% if tab == 'builder' %} class="on"{% endif %}>Builder</a>{% endif %}
     <a href="/downloads"{% if tab == 'downloads' %} class="on"{% endif %}>Downloads</a>
     <a href="/hosting"{% if tab == 'hosting' %} class="on"{% endif %}>Hosting</a>
+    {% if questline_dag %}<a href="/er/questlines.html"{% if tab == 'questlines' %} class="on"{% endif %}>Questlines</a>{% endif %}
     {% if er_tooling %}<a href="/er/checks.html"{% if tab == 'checks' %} class="on"{% endif %}>Checks</a>{% endif %}
     {% if er_tooling %}<a href="/er/report.html"{% if tab == 'report' %} class="on"{% endif %}>Report a bug</a>{% endif %}
     <a class="donate-link" href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
