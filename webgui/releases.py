@@ -53,6 +53,17 @@ logger = logging.getLogger(__name__)
 #: er-archipelago publishes the game.
 DOWNLOADS_REPO = os.environ.get("DOWNLOADS_REPO", "4laric/er-archipelago")
 
+#: Human-readable channel ledger. The website labels the two release streams, but the ledger is
+#: where their meaning is maintained and audited.
+CHANNELS_URL = os.environ.get(
+    "DOWNLOADS_CHANNELS_URL",
+    f"https://github.com/{DOWNLOADS_REPO}/blob/main/release/CHANNELS.tsv",
+)
+CHANNELS_RAW_URL = os.environ.get(
+    "DOWNLOADS_CHANNELS_RAW_URL",
+    f"https://raw.githubusercontent.com/{DOWNLOADS_REPO}/main/release/CHANNELS.tsv",
+)
+
 #: Seconds a fetched release is reused. The measured tag cadence on er-archipelago is a 0.82-day
 #: MEDIAN GAP, so anything under an hour is already far finer than the thing it tracks; 15 minutes
 #: keeps an unauthenticated box at 4 calls/hour against GitHub's 60/hour anonymous budget.
@@ -84,7 +95,7 @@ _HISTORY_DEPTH = 10
 #: `match` is a predicate on the asset filename because the bundle carries its version in its name.
 _WANTED = (
     ("bundle", lambda n: n.startswith("ER-Archipelago-") and n.endswith(".zip")),
-    ("apworld", lambda n: n == "eldenring.apworld"),
+    ("apworld", lambda n: n in ("eldenring.apworld", "eldenring-dev.apworld")),
 )
 
 
@@ -146,6 +157,7 @@ class Releases:
 
 _lock = threading.Lock()
 _cache: dict = {"at": 0.0, "value": None}
+_dev_cache: dict = {"at": 0.0, "value": None}
 
 
 def _api_url(repo: str) -> str:
@@ -164,7 +176,25 @@ def _fetch_raw(repo: str, timeout: float) -> list:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _resolve(payload: list) -> Releases:
+def _fetch_channels(timeout: float) -> str:
+    req = urllib.request.Request(CHANNELS_RAW_URL, headers={"User-Agent": "peliarch-downloads"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8")
+
+
+def _current_channels(text: str) -> dict[str, str]:
+    """Last append-only row wins, matching er-archipelago's check_channels.py."""
+    current = {}
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 2:
+            current[parts[0].strip()] = parts[1].strip()
+    return current
+
+
+def _resolve(payload: list, stable_tag: str = None) -> Releases:
     """Turn the API payload into one release plus what it carries.
 
     THE RESOLVED RELEASE IS THE NEWEST NON-DRAFT, NON-PRERELEASE ONE -- chosen once, for all assets.
@@ -184,6 +214,14 @@ def _resolve(payload: list) -> Releases:
     # The API returns newest-first by creation, but sorting on published_at makes that an assertion
     # rather than a hope -- a re-published tag reorders the former and not the latter.
     published.sort(key=lambda r: r.get("published_at") or "", reverse=True)
+    if stable_tag:
+        selected = next((r for r in published if r.get("tag_name") == stable_tag), None)
+        if selected is None:
+            return Releases(ok=False)
+        # A promoted stable release may trail newer version tags. Asset history must look backward
+        # from stable, never forward into an unpromoted build.
+        published = [selected] + [r for r in published if (r.get("published_at") or "")
+                                  < (selected.get("published_at") or "")]
     newest = published[0]
 
     def _named(release, match):
@@ -225,6 +263,37 @@ def _resolve(payload: list) -> Releases:
     )
 
 
+def _resolve_dev(payload: list) -> Releases:
+    """Resolve only the moving `dev` prerelease; never mistake another prerelease for the channel."""
+    if not isinstance(payload, list):
+        return Releases(ok=False)
+    candidates = [r for r in payload if isinstance(r, dict) and not r.get("draft")
+                  and r.get("prerelease") and r.get("tag_name") == "dev"]
+    if not candidates:
+        return Releases(ok=False)
+    return _resolve_one(candidates[0])
+
+
+def _resolve_one(release: dict) -> Releases:
+    """One already-selected release, with no cross-release asset fallback."""
+    assets = {}
+    for kind, match in _WANTED:
+        hit = next((a for a in release.get("assets") or [] if match(a.get("name") or "")), None)
+        assets[kind] = Asset(
+            kind=kind,
+            filename=hit.get("name") if hit else None,
+            url=hit.get("browser_download_url") if hit else None,
+            size_bytes=int(hit.get("size") or 0) if hit else 0,
+        )
+    return Releases(
+        ok=True,
+        tag=release.get("tag_name"),
+        published_at=release.get("published_at"),
+        html_url=release.get("html_url"),
+        assets=assets,
+    )
+
+
 def get_releases(repo: str = None, ttl: int = None, timeout: float = None,
                  force: bool = False) -> Releases:
     """Resolved release for the downloads page. Never raises.
@@ -244,7 +313,11 @@ def get_releases(repo: str = None, ttl: int = None, timeout: float = None,
             return cached
 
     try:
-        resolved = _resolve(_fetch_raw(repo, timeout))
+        channels = _current_channels(_fetch_channels(timeout))
+        stable_tag = channels.get("stable")
+        if not stable_tag:
+            raise ValueError("channel ledger has no stable pointer")
+        resolved = _resolve(_fetch_raw(repo, timeout), stable_tag=stable_tag)
     except (urllib.error.URLError, urllib.error.HTTPError, OSError,
             ValueError, TypeError, KeyError) as exc:
         logger.warning("downloads: release fetch failed (%s: %s)", type(exc).__name__, exc)
@@ -262,8 +335,36 @@ def get_releases(repo: str = None, ttl: int = None, timeout: float = None,
     return resolved
 
 
+def get_dev_release(repo: str = None, ttl: int = None, timeout: float = None,
+                    force: bool = False) -> Releases:
+    """The moving development prerelease. Never raises and never falls back to a stable asset."""
+    repo = repo or DOWNLOADS_REPO
+    ttl = DOWNLOADS_TTL_SECONDS if ttl is None else ttl
+    timeout = DOWNLOADS_TIMEOUT_SECONDS if timeout is None else timeout
+    with _lock:
+        cached = _dev_cache["value"]
+        if cached is not None and (time.time() - _dev_cache["at"]) < ttl and not force:
+            return cached
+    try:
+        channels = _current_channels(_fetch_channels(timeout))
+        if channels.get("beta") != "main":
+            return Releases(ok=False)
+        resolved = _resolve_dev(_fetch_raw(repo, timeout))
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError,
+            ValueError, TypeError, KeyError) as exc:
+        logger.warning("downloads: dev release fetch failed (%s: %s)", type(exc).__name__, exc)
+        with _lock:
+            return _dev_cache["value"] or Releases(ok=False)
+    with _lock:
+        _dev_cache["at"] = time.time()
+        _dev_cache["value"] = resolved
+    return resolved
+
+
 def reset_cache() -> None:
     """Drop the cached release. For tests, and for a future admin poke."""
     with _lock:
         _cache["at"] = 0.0
         _cache["value"] = None
+        _dev_cache["at"] = 0.0
+        _dev_cache["value"] = None

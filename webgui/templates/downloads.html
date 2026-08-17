@@ -5,7 +5,7 @@
 <h1>Downloads</h1>
 <p class="page-sub">
   Elden Ring for Archipelago — the apworld, the runtime client, and the docs.
-  Published on GitHub Releases; this page reads whatever the newest release actually carries.
+  Published on GitHub Releases, with stable and development builds kept visibly separate.
 </p>
 
 <!-- ===================== The rule, before the buttons ===================== -->
@@ -130,6 +130,41 @@
   </a>
 </div>
 {% endif %}
+
+<!-- ===================== Moving development channel ===================== -->
+<div class="section-header">
+  <h2 style="margin-bottom:0;">Development build</h2>
+  {% if dev.ok %}<span class="pill" style="background:#7c3aed; color:white;">{{ dev.tag }}</span>{% endif %}
+</div>
+<div class="card" style="border-color:#7c3aed;">
+  <h3 style="color:#a78bfa;">For playtesting current work</h3>
+  <p style="margin:0.5rem 0 0.8rem;">
+    Rebuilt automatically from the current world and client <code>main</code> branches. It can
+    change after every merge, is not a stable release, and records both exact commit SHAs inside
+    the bundle so a report can always be tied back to its source.
+  </p>
+  <p style="color:#fb923c; margin:0 0 0.9rem;">
+    <strong>Known development-build difference:</strong> the private AP flower texture is omitted
+    for now, so checks and AP shop slots use Elden Ring's Telescope icon. This is cosmetic; stable
+    bundles still refuse to package without the flower override.
+  </p>
+  {% if dev.ok and dev.asset('bundle').available %}
+  <a class="btn btn-primary" href="{{ dev.asset('bundle').url }}">
+    Download {{ dev.asset('bundle').filename }}{% if dev.asset('bundle').size_human %} — {{ dev.asset('bundle').size_human }}{% endif %}
+  </a>
+  {% if dev.asset('apworld').available %}
+  <a class="btn btn-neutral" href="{{ dev.asset('apworld').url }}">
+    Bare development apworld
+  </a>
+  {% endif %}
+  {% else %}
+  <p style="color:#64748b;">No development bundle has completed successfully yet.</p>
+  {% endif %}
+  <p style="font-size:0.8rem; margin:0.9rem 0 0; color:#64748b;">
+    The append-only <a href="{{ channels_url }}" target="_blank" rel="noopener">channel ledger</a>
+    records what <code>stable</code> and the moving development channel point at.
+  </p>
+</div>
 
 <hr class="divider">
 
