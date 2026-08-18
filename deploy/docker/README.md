@@ -97,6 +97,26 @@ into the image at `/app/.er-rev`, so a running container can always answer *whic
 docker compose exec web cat /app/.er-rev
 ```
 
+### Moving beta wizard
+
+Stable ER pages remain part of that reproducible image pin. The development builder is deliberately
+separate: er-archipelago's `tools/deploy_wizard.sh` writes the moving `main` pages to the host, and
+Compose mounts only the host's `beta/` directory read-only at `/er-static/beta`.
+
+On the host, deploy the pages before or after recreating the web container:
+
+```bash
+cd ~/er-archipelago
+ER_STATIC_DIR=/srv/er tools/deploy_wizard.sh
+cd ~/Archipelago/deploy/docker
+docker compose up -d --force-recreate web
+curl -fsS https://YOURDOMAIN/er/beta/wizard.html >/dev/null
+```
+
+Set `ER_BETA_STATIC_DIR` if the host-side beta directory is not `/srv/er/beta`. The bind mount is
+read-only in the container, survives container recreation, and does not replace the stable pages
+baked at `ER_REF`.
+
 The world is installed by `tools/gf_test.py --install-only`, which is the same entry point CI and
 the dev box use. That matters more than it looks: the apworld needs several files installed
 *beside* the package (`region_map.csv`, the `.tsv` tables, `region_groups.py`, the shipping yaml),
