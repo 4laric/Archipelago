@@ -36,7 +36,9 @@ jobs:
           ! deploy/docker/validate-er-ref.sh main
       - name: Compose requires an immutable ER release
         working-directory: deploy/docker
-        run: ER_REF=v0.4.6 DOMAIN=example.test docker compose config --quiet
+        run: |
+          cp .env.example .env
+          ER_REF=v0.4.6 DOMAIN=example.test docker compose config --quiet
 
   live:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
