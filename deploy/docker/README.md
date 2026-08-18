@@ -84,14 +84,11 @@ here and only one of them is reproducible:
 So `ER_REF` in `.env` is the reproducibility boundary. Shipping a new apworld or wizard is a
 one-line bump plus a rebuild — a reviewable diff, not an ssh session.
 
-> ⚠️ **A branch name is not a pin.** An earlier version of this section claimed "the same `ER_REF`
-> always builds the same image" without qualification. That is true of a tag or a sha and false of
-> `main`, which moves. Worse, Docker caches a `RUN` by its command string, so `git clone --branch
-> main` never re-ran once cached and the box served a wizard two merges stale through a `--build`
-> redeploy. The `ADD ${ER_API}/commits/${ER_REF}` line above fixes the staleness — the clone is now
-> invalidated exactly when the ref's target moves — but **for a box you care about, pin a tag.**
-> `main` will now track correctly; it still cannot tell you what you deployed last Tuesday. The resolved commit is baked
-into the image at `/app/.er-rev`, so a running container can always answer *which* ER build it is:
+`ER_REF` is required and the build rejects moving branch names. Use a `vX.Y.Z` release tag or a full
+40-character commit SHA. This is enforced because `ER_REF=main` once rebuilt the public stable page
+from development while `/downloads` remained on v0.4.6: both pages worked, and together they lied.
+The resolved commit is baked into the image at `/app/.er-rev`, so a running container can always
+answer *which* ER build it is:
 
 ```bash
 docker compose exec web cat /app/.er-rev
@@ -107,7 +104,7 @@ On the host, deploy the pages before or after recreating the web container:
 
 ```bash
 cd ~/er-archipelago
-ER_STATIC_DIR=/srv/er tools/deploy_wizard.sh
+ER_STATIC_DIR=/srv/er tools/deploy_wizard.sh --beta-only
 cd ~/Archipelago/deploy/docker
 docker compose up -d --force-recreate web
 curl -fsS https://YOURDOMAIN/er/beta/wizard.html >/dev/null
@@ -126,7 +123,7 @@ time. One installer, one definition, no drift.
 ### What to set
 
 ```ini
-ER_REF=main                # or a release tag for a box you care about
+ER_REF=v0.4.6              # immutable tag or full 40-character commit SHA; never main
 GENERATE_ENABLED=1
 GENERATE_TIMEOUT=180
 GENERATE_MAX_AS_MB=2048
@@ -169,6 +166,7 @@ remaining fix.
 ```bash
 docker compose exec web cat /app/.er-rev                     # which ER build is baked in
 curl -sf https://YOURDOMAIN/er/wizard.html | head -c 40      # the wizard is served
+python .github/scripts/check_er_channels.py --base-url https://YOURDOMAIN
 curl -s -H 'Accept: application/json' -X POST \
      --data-urlencode 'yaml@my-seed.yaml' \
      https://YOURDOMAIN/generate | jq .                      # a real seed -> a real room
