@@ -462,19 +462,23 @@ class TestCreateRoom:
 
 
 class TestTabStrip:
-    """One strip, five destinations, same on every templated page -- and the BUILDER IS FIRST.
+    """One strip, six destinations, same on every templated page -- and the BUILDER IS FIRST.
 
     🛑 THIS IS HALF OF THE DEFINITION. The other half is er-archipelago's `wizard/tabs.js`, which
-    renders the same five links into landing.html, wizard.html, checks.html and report.html --
+    renders the same six links into landing.html, wizard.html, checks.html and report.html --
     single files that never pass through Jinja and so cannot inherit base.html. Two copies is a
     deliberate trade (a templated page whose navigation came from a 404ing script would have no
     navigation at all), and these assertions are the price of it: change a tab here and this test
     tells you, in this repo, that the other copy needs the same change.
     """
 
-    TABS = ["/er/", "/downloads", "/hosting", "/er/checks.html", "/er/report.html"]
+    TABS = [
+        "/er/", "/downloads", "/hosting", "/er/questlines.html", "/er/checks.html",
+        "/er/report.html",
+    ]
 
     def _html(self, mgr, tmp_path, monkeypatch, path="/hosting"):
+        (tmp_path / "questlines.html").write_text("questline DAG", encoding="utf-8")
         monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
         c = create_app(manager=mgr).test_client()
         return c.get(path).data.decode()
@@ -502,13 +506,21 @@ class TestTabStrip:
     def test_tabs_that_need_er_tooling_vanish_without_it(self, mgr, monkeypatch):
         """A tab that 404s is worse than a tab that is not there.
 
-        Builder, Checks and Report all serve out of ER_STATIC_DIR. Downloads and Hosting are
+        Builder, Questlines, Checks and Report all serve out of ER_STATIC_DIR. Downloads and Hosting are
         peliarch's own routes and must survive.
         """
         monkeypatch.setattr(app_module, "ER_STATIC_DIR", "")
         html = create_app(manager=mgr).test_client().get("/hosting").data.decode()
         assert "/er/" not in html
+        assert "/er/questlines.html" not in html
         assert 'href="/downloads"' in html and 'href="/hosting"' in html
+
+    def test_questlines_tab_vanishes_when_artifact_is_absent(self, mgr, tmp_path, monkeypatch):
+        """An older ER_REF may have tooling but no optional questline DAG."""
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
+        html = create_app(manager=mgr).test_client().get("/hosting").data.decode()
+        assert 'href="/er/"' in html
+        assert 'href="/er/questlines.html"' not in html
 
 
 # ---------------------------------------------------------------------------

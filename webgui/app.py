@@ -144,11 +144,15 @@ def create_app(manager: RoomManager = None) -> Flask:
             "donation_url":    app.config["DONATION_URL"],
             "contact_discord": app.config["CONTACT_DISCORD"],
             "contact_github":  app.config["CONTACT_GITHUB"],
-            # The tab strip lives in base.html and three of its five tabs are served out of
+            # The tab strip lives in base.html and four of its six tabs are served out of
             # ER_STATIC_DIR, so it has to know whether that directory exists -- a Builder tab
             # that 404s is worse than no Builder tab. Read at request time, not captured at
             # create_app time, so a test (and a deploy that lands mid-process) sees the truth.
             "er_tooling": bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
+            # Older ER_REF values legitimately lack the optional questline artifact. Do not
+            # advertise a tab whose target was not copied into this particular deployment.
+            "questline_dag": bool(ER_STATIC_DIR and os.path.isfile(
+                os.path.join(ER_STATIC_DIR, "questlines.html"))),
         }
 
     if manager is None:
