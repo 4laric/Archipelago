@@ -483,6 +483,7 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
     local_pot_items.sort()
     world.random.shuffle(local_pot_items)
     local_pot_items.extend(nothing_items)
+    local_pot_items = [item for item in local_pot_items if item.name not in world.options.non_local_items]
     pot_locations = [location for location in fill_locations if location.player == world.player and "Pot" in location.name]
     num_filler_items_placed = 0
 
@@ -508,7 +509,9 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
     local_fill_percent = world.options.local_fill_percent
     if local_fill_percent > 0:
         num_filler_items_to_place = num_filler_items * (local_fill_percent / 100)
-        junk_items = ([item for item in filleritempool if item.player == world.player and (item.name in local_pot_item_names or item.name == "Nothing")])
+        junk_items = ([item for item in filleritempool if item.player == world.player and
+                       (item.name in local_pot_item_names or item.name == "Nothing") and
+                       item.name not in world.options.non_local_items])
         junk_items.sort()
         world.random.shuffle(junk_items)
 
@@ -516,7 +519,7 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
         locations.sort()
         world.random.shuffle(locations)
 
-        while num_filler_items_to_place > num_filler_items_placed:
+        while num_filler_items_to_place > num_filler_items_placed and junk_items and locations:
             item = junk_items.pop(0)
             location = locations.pop(0)
             location.place_locked_item(item)
