@@ -1,0 +1,48 @@
+name: ER channel parity
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/scripts/check_er_channels.py"
+      - ".github/workflows/er-channel-parity.yml"
+      - "deploy/docker/**"
+      - "webgui/test_er_channels.py"
+  pull_request:
+    paths:
+      - ".github/scripts/check_er_channels.py"
+      - ".github/workflows/er-channel-parity.yml"
+      - "deploy/docker/**"
+      - "webgui/test_er_channels.py"
+
+permissions: {}
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.11"
+      - run: python -m pip install pytest
+      - run: pytest -q webgui/test_er_channels.py
+      - name: Reject moving ER refs
+        run: |
+          deploy/docker/validate-er-ref.sh v0.4.6
+          ! deploy/docker/validate-er-ref.sh main
+      - name: Compose requires an immutable ER release
+        working-directory: deploy/docker
+        run: |
+          cp .env.example .env
+          ER_REF=v0.4.6 DOMAIN=example.test docker compose config --quiet
+
+  live:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - run: python .github/scripts/check_er_channels.py --base-url https://peliarch.ca

@@ -23,25 +23,25 @@ RUN go build -o /out/peliarch .
 FROM python:3.12-slim-bookworm AS ertools
 ARG ER_REPO=https://github.com/4laric/er-archipelago.git
 ARG ER_API=https://api.github.com/repos/4laric/er-archipelago
-ARG ER_REF=main
+ARG ER_REF
+COPY deploy/docker/validate-er-ref.sh /usr/local/bin/validate-er-ref
+RUN validate-er-ref "$ER_REF"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 # 🛑 CACHE BUST, AND WHY IT IS NOT OPTIONAL.
-# Docker caches a RUN by its command STRING. `git clone --branch main` is the same string every
-# build, so once it is cached it never clones again -- and a MOVING ref like `main` then silently
-# freezes at whatever it pointed to the first time. That is not a hypothetical: the box served a
-# wizard from a commit two merges old, through a `--build` redeploy, and the only reason anyone
-# noticed was fetching the live page and seeing a missing card.
+# Docker caches a RUN by its command STRING. This cache-bust also makes the resolved immutable
+# revision part of the build inputs, so changing ER_REF cannot reuse tooling from the old pin.
 #
 # `ADD <url>` is re-fetched on EVERY build and its content decides whether downstream layers are
-# invalidated. The API's commit document for a ref contains that ref's sha, so this busts the clone
-# exactly when ER_REF's target has actually moved, and not otherwise -- a branch stays fast when it
-# has not changed, and an immutable tag or sha never re-clones at all.
+# invalidated. ER_REF is restricted above to an immutable release tag or full commit SHA.
 ADD ${ER_API}/commits/${ER_REF} /er-ref.json
 
-RUN git clone --depth 1 --branch "$ER_REF" "$ER_REPO" /er \
+RUN git init /er \
+ && git -C /er remote add origin "$ER_REPO" \
+ && git -C /er fetch --depth 1 origin "$ER_REF" \
+ && git -C /er checkout --detach FETCH_HEAD \
  && git -C /er rev-parse HEAD > /er-rev.txt
 # The world is installed into an empty tree here and copied into /app in stage 2, so a rebuild of
 # stage 2 does not re-clone.
@@ -59,10 +59,8 @@ RUN mkdir -p /apworld && python /er/tools/gf_test.py --install-only --ap-dir /ap
 # line and keeps the tolerance, because it is the one artifact that may legitimately not exist at an
 # older ER_REF.
 #
-# This is the FALLBACK copy, pinned to ER_REF. er-archipelago's tools/deploy_wizard.sh is the
-# primary installer and pins to the STABLE TAG, which is the stricter and more correct answer -- it
-# just cannot run inside a docker build. A box that runs the script gets the script's files; a box
-# that never runs it now gets a working site instead of a broken one.
+# Stable is owned by this immutable image pin. The host mounts only /er-static/beta;
+# er-archipelago's deploy_wizard.sh --beta-only updates that moving channel without touching stable.
 RUN mkdir -p /er-static \
  && cp /er/wizard/wizard.html  /er-static/wizard.html \
  && cp /er/wizard/landing.html /er-static/landing.html \

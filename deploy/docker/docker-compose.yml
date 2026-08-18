@@ -11,7 +11,9 @@ services:
         # The Elden Ring tooling is cloned at this pin during the build -- see the Dockerfile's
         # `ertools` stage. Moving it is how you ship a new apworld/wizard: bump, rebuild, done.
         ER_REPO: ${ER_REPO:-https://github.com/4laric/er-archipelago.git}
-        ER_REF: ${ER_REF:-main}
+        # Stable generation + static pages must be an immutable release. `main` here promoted the
+        # development wizard to /er/ while /downloads still named v0.4.6 (#863).
+        ER_REF: ${ER_REF:?Set ER_REF to an immutable Elden Ring release tag, for example v0.4.6}
     env_file: .env
     environment:
       DATA_DIR: /data
