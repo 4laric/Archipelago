@@ -21,6 +21,10 @@ services:
       ER_STATIC_DIR: /er-static      # what /er serves (wizard + check browser)
     volumes:
       - peliarch_data:/data          # uploads, room saves, logs, rooms.json
+      # Stable ER pages stay baked into the image at ER_REF. Only the moving beta channel is
+      # operator-managed: deploy_wizard.sh writes this host directory and the web process serves it
+      # read-only at /er/beta/*. Without the bind, a successful host deploy is invisible in Docker.
+      - ${ER_BETA_STATIC_DIR:-/srv/er/beta}:/er-static/beta:ro
     # port-per-room: publish the SAME range the orchestrator allocates (PORT_START..PORT_END).
     #
     # 🛑 THE DEFAULTS HERE AND IN THE APP MUST AGREE, and until 2026-08-13 they did not: this said
