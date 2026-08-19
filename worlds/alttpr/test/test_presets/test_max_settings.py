@@ -23,6 +23,7 @@ class TestMaxSettings(ALttPRTestBase):
         "key_drop_shuffle": "true",
         "shopsanity": "true",
         "pot_shuffle": "lottery",
+        "enemy_drop_shuffle": "underworld",
         "enemy_shuffle": "logical",
         "boss_shuffle": "chaos",
         "prize_shuffle": "true",
