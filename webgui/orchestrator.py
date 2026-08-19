@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -40,6 +41,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_PORT_START = 38400
 DEFAULT_PORT_END   = 38600
 DEFAULT_IDLE_TIMEOUT = 30 * 60      # 30 minutes
+DEFAULT_NEVER_CONNECTED_RETENTION = 24 * 60 * 60       # 1 day
+DEFAULT_USED_ROOM_RETENTION = 30 * 24 * 60 * 60        # 30 days
 # Address-space cap for a room process. Measured 2026-08-13 on the live box: five running rooms at
 # ~162-200 MB RSS each, so 2 GB is ~10x the observed working set -- the same ratio generator.py
 # chose against its own measurement (2 GB against a 170 MB peak), and for the same reason: this is
@@ -345,6 +348,9 @@ class Room:
     idle_timeout: int = DEFAULT_IDLE_TIMEOUT
     created_at: float = field(default_factory=time.time)
     last_active_at: float = field(default_factory=time.time)
+    # Set only after the host observes a real connection on the room port. This deliberately
+    # distinguishes a generated-and-abandoned room from one somebody has actually played.
+    first_connected_at: Optional[float] = None
     pid: Optional[int] = None          # PID of process listening on port
     launch_pid: Optional[int] = None   # Popen.pid (may differ on Windows)
     crash_count: int = 0
@@ -362,6 +368,10 @@ class Room:
     def from_dict(d: dict) -> "Room":
         d = dict(d)
         d.pop("_proc", None)
+        # Records written before connection history existed must not be swept as abandoned on the
+        # first deploy. Treat them as used and let the normal, longer retention window apply.
+        if "first_connected_at" not in d:
+            d["first_connected_at"] = d.get("last_active_at", d.get("created_at", time.time()))
         return Room(**d)
 
     def connect_info(self, public_host: str) -> dict:
@@ -487,6 +497,9 @@ class RoomManager:
         launcher: Optional[Callable] = None,
         upload_max_bytes: int = DEFAULT_UPLOAD_MAX_BYTES,
         room_max_as_mb: int = DEFAULT_ROOM_MAX_AS_MB,
+        never_connected_retention: int = DEFAULT_NEVER_CONNECTED_RETENTION,
+        used_room_retention: int = DEFAULT_USED_ROOM_RETENTION,
+        log_archive_dir: Optional[str] = None,
     ):
         self.data_dir = data_dir
         self.repo_dir = repo_dir
@@ -495,6 +508,9 @@ class RoomManager:
         self.port_end = port_end
         self.upload_max_bytes = upload_max_bytes
         self.room_max_as_mb = room_max_as_mb
+        self.never_connected_retention = never_connected_retention
+        self.used_room_retention = used_room_retention
+        self.log_archive_dir = log_archive_dir or os.path.join(data_dir, "server-logs")
         self._launcher = launcher  # None → use real subprocess.Popen
         self._store = RoomStore(store_path)
         self._lock = threading.Lock()
@@ -502,6 +518,7 @@ class RoomManager:
         self._stop_idle = threading.Event()
 
         os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(self.log_archive_dir, exist_ok=True)
 
         # Resurrect any rooms that were RUNNING at last shutdown → HIBERNATED
         for room in self._store.all():
@@ -716,21 +733,42 @@ class RoomManager:
         logger.info("Room %s stopped → HIBERNATED", room_id)
         return room
 
-    def delete_room(self, room_id: str) -> None:
+    def _archive_room_log(self, room: Room) -> Optional[str]:
+        """Copy unmodified server output outside the room's disposable directory.
+
+        Cleanup removes multidata and saves, but this transcript is the useful artifact when a
+        player reports something after the room is gone. Archives share the persistent data volume
+        while living outside room directories, so room deletion cannot remove them.
+        """
+        if not room.log_path or not os.path.isfile(room.log_path):
+            return None
+        month = time.strftime("%Y-%m", time.gmtime(room.created_at))
+        archive_dir = os.path.join(self.log_archive_dir, month)
+        os.makedirs(archive_dir, exist_ok=True)
+        archive_path = os.path.join(archive_dir, f"{room.id}.server.log")
+        shutil.copy2(room.log_path, archive_path)
+        logger.info("Archived room %s server log to %s", room.id, archive_path)
+        return archive_path
+
+    def delete_room(self, room_id: str, reason: str = "manual") -> None:
         room = self._store.get(room_id)
         if room is None:
             return
         if room.status == "RUNNING":
             self.stop_room(room_id)
-        # Remove files
+        # Archive before removing the room directory. If archival fails, deletion fails too: a
+        # cleanup retry is cheaper than silently discarding the evidence this feature exists for.
+        self._archive_room_log(room)
         room_dir = os.path.dirname(room.multidata_path)
         try:
-            import shutil
-            shutil.rmtree(room_dir, ignore_errors=True)
+            shutil.rmtree(room_dir)
+        except FileNotFoundError:
+            pass
         except Exception as e:
             logger.warning("Could not remove room dir %s: %s", room_dir, e)
+            raise
         self._store.delete(room_id)
-        logger.info("Room %s deleted", room_id)
+        logger.info("Room %s deleted (%s)", room_id, reason)
 
     def set_password(self, room_id: str, password: Optional[str]) -> Room:
         room = self._store.get(room_id)
@@ -921,9 +959,15 @@ class RoomManager:
             if room.status != "RUNNING" or not room.port:
                 continue
             live = connections_on_port(room.port)
-            if live is None or live > 0:
+            if live is None:
                 # None = the table would not read. Ignorance keeps the room UP, on purpose.
                 self.touch_activity(room.id, now)
+            elif live > 0:
+                if room.first_connected_at is None:
+                    room.first_connected_at = now
+                    logger.info("Room %s received its first connection", room.id)
+                room.last_active_at = now
+                self._store.put(room)
 
         for room in self._store.all():
             if room.status != "RUNNING":
@@ -938,10 +982,42 @@ class RoomManager:
                 except Exception as e:
                     logger.warning("Hibernate error for room %s: %s", room.id, e)
 
+    def cleanup_stale_rooms(self, now: Optional[float] = None) -> List[str]:
+        """Delete old inactive rooms, using a shorter window for rooms nobody joined.
+
+        Running and starting rooms are never retention-deleted. Set either retention to zero to
+        disable cleanup for that class of room.
+        """
+        now = time.time() if now is None else now
+        deleted: List[str] = []
+        for room in self._store.all():
+            if room.status in ("RUNNING", "STARTING"):
+                continue
+            if room.first_connected_at is None:
+                retention = self.never_connected_retention
+                age = now - room.created_at
+                kind = "never connected"
+            else:
+                retention = self.used_room_retention
+                age = now - room.last_active_at
+                kind = "previously used"
+            if retention <= 0 or age < retention:
+                continue
+            try:
+                self.delete_room(
+                    room.id,
+                    reason=f"{kind}; inactive for {age:.0f}s (retention {retention}s)",
+                )
+                deleted.append(room.id)
+            except Exception as e:
+                logger.warning("Stale-room cleanup failed for %s: %s", room.id, e)
+        return deleted
+
     def _idle_loop(self):
         while not self._stop_idle.wait(timeout=60):
             now = time.time()
             self.hibernate_idle_rooms(now)
+            self.cleanup_stale_rooms(now)
 
             # Crash-restart (with backoff)
             for room in self._store.all():

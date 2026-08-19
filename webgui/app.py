@@ -36,7 +36,12 @@ from flask import (
 from werkzeug.exceptions import NotFound
 
 from webgui.orchestrator import (
-    RoomManager, DEFAULT_IDLE_TIMEOUT, DEFAULT_UPLOAD_MAX_BYTES, DEFAULT_ROOM_MAX_AS_MB,
+    RoomManager,
+    DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_NEVER_CONNECTED_RETENTION,
+    DEFAULT_ROOM_MAX_AS_MB,
+    DEFAULT_UPLOAD_MAX_BYTES,
+    DEFAULT_USED_ROOM_RETENTION,
 )
 from webgui import generator
 from webgui import releases
@@ -64,6 +69,12 @@ DEFAULT_PORT_START  = int(os.environ.get("PORT_START", "38400"))
 DEFAULT_PORT_END    = int(os.environ.get("PORT_END",   "38600"))
 LOG_TAIL_LINES      = int(os.environ.get("LOG_TAIL_LINES", "200"))
 ROOM_MAX_AS_MB      = int(os.environ.get("ROOM_MAX_AS_MB", str(DEFAULT_ROOM_MAX_AS_MB)))
+ROOM_NEVER_CONNECTED_RETENTION = int(os.environ.get(
+    "ROOM_NEVER_CONNECTED_RETENTION", str(DEFAULT_NEVER_CONNECTED_RETENTION)))
+ROOM_USED_RETENTION = int(os.environ.get(
+    "ROOM_USED_RETENTION", str(DEFAULT_USED_ROOM_RETENTION)))
+ROOM_LOG_ARCHIVE_DIR = os.environ.get(
+    "ROOM_LOG_ARCHIVE_DIR", os.path.join(DEFAULT_DATA_DIR, "server-logs"))
 
 # ---- the SSE log stream, which is the scarcest resource on this box ----------------------------
 #
@@ -164,6 +175,9 @@ def create_app(manager: RoomManager = None) -> Flask:
             port_start=DEFAULT_PORT_START,
             port_end=DEFAULT_PORT_END,
             room_max_as_mb=ROOM_MAX_AS_MB,
+            never_connected_retention=ROOM_NEVER_CONNECTED_RETENTION,
+            used_room_retention=ROOM_USED_RETENTION,
+            log_archive_dir=ROOM_LOG_ARCHIVE_DIR,
         )
         manager.start_idle_reaper()
 

@@ -30,6 +30,19 @@ cert). Then open `https://DOMAIN` — upload a `.archipelago`, get a connect add
 - **persistence**: the `peliarch_data` named volume holds uploads, room saves, logs, and
   `rooms.json`. Survives `docker compose down`; removed only by `docker compose down -v`.
 
+### Room retention and server logs
+
+The room reaper gives generated-but-abandoned rooms a shorter lifetime than rooms players actually
+used. By default, a room with no observed client connection is deleted after 24 hours; a previously
+used room is deleted after 30 days without activity. Running rooms are never retention-deleted.
+Configure the windows in `.env` with `ROOM_NEVER_CONNECTED_RETENTION` and
+`ROOM_USED_RETENTION` (seconds); `0` disables that cleanup class.
+
+Every room's real server stdout/stderr already goes to `server.log`. Before any automatic or manual
+room deletion, that file is copied unchanged to `/data/server-logs/YYYY-MM/<room-id>.server.log`,
+outside the disposable room directory. `ROOM_LOG_ARCHIVE_DIR` can move the archive, but its default
+is in the persistent `peliarch_data` volume and is included by the backup command below.
+
 ## Common ops
 
 ```bash
