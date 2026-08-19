@@ -497,10 +497,8 @@ def init_lookups():
                 loc_name = key_drop_data[(super_tile, index)]
                 location_id = PotShuffle.key_drop_data[loc_name][1][0]
             else:
-                continue
-                # TODO: Enemy drop shuffle
-                # loc_name = f'{sprite.region} Enemy #{index+1}'
-                # location_id = EnemyList.drop_address(index, super_tile)
+                loc_name = f'{sprite.region} Enemy #{index+1}'
+                location_id = EnemyList.drop_address(index, super_tile)
             # if index < index_adj:
             #     logging.info(f'Problem at {hex(super_tile)} {loc_name}')
             location_table_sprite_items[loc_name] = (2 * super_tile, 0x8000 >> (index-index_adj))

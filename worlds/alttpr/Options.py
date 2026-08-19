@@ -261,7 +261,7 @@ class PrizeShuffle(Toggle):
 
 
 class PotShuffle(Choice):
-    """Pots now contain randomized items. Any pots that haven't been checked will have their color changed. A max of 256 multiworld items can be under pots.
+    """Pots contain randomized items. Any pots that haven't been checked will have their color changed. A max of 256 multiworld items can be under pots.
     - None - No pots are in the pool, like normal randomizer
     - Key Pots - The pots that have keys are in the pool
     - Cave Pots - The pots that are not found in dungeons are in the pool (includes Spike Cave large block)
@@ -275,6 +275,17 @@ class PotShuffle(Choice):
     option_cavekeys = 3
     option_dungeon = 4
     option_lottery = 5
+    default = "none"
+
+
+class EnemyDropShuffle(Choice):
+    """Enemies drop randomized items. With all underworld (caves + dungeons) enemies randomized, a blue square will be shown
+    in the top-left corner if there is a nearby enemy with an unclaimed check, and you start with a Sword."""
+    display_name = "Enemy Drop Shuffle"
+    option_none = 0
+    option_keys = 1
+    option_underworld = 2
+    default = "none"
 
 
 class LocalFillPercent(Range):
@@ -468,6 +479,7 @@ class ALttPROptions(PerGameCommonOptions):
     prize_shuffle: PrizeShuffle
     flute_shuffle: FluteShuffle
     pot_shuffle: PotShuffle
+    enemy_drop_shuffle: EnemyDropShuffle
     local_fill_percent: LocalFillPercent
     pre_activated_flute: PreActivatedFlute
     pseudoboots: Pseudoboots
@@ -510,6 +522,7 @@ alttpr_option_groups: list[OptionGroup] = [
             Shopsanity,
             PrizeShuffle,
             PotShuffle,
+            EnemyDropShuffle,
             LocalFillPercent,
         ],
     ),

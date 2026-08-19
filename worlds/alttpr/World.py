@@ -363,6 +363,7 @@ class ALttPRWorld(World):
         # generate for one player, hence all the "1"s everywhere.
         shuffled_doors = self.options.door_shuffle != "vanilla"
         if self.options.key_drop_shuffle or shuffled_doors:
+            dropshuffle = self.options.enemy_drop_shuffle.current_key if self.options.enemy_drop_shuffle != "none" else "keys"
             if self.options.pot_shuffle == "cave":
                 pottery = "cavekeys"
             elif self.options.pot_shuffle == "none":
@@ -370,7 +371,10 @@ class ALttPRWorld(World):
             else:
                 pottery = self.options.pot_shuffle.current_key
         else:
+            dropshuffle = self.options.enemy_drop_shuffle.current_key
             pottery = self.options.pot_shuffle.current_key
+
+        enable_dungeon_counter = shuffled_doors or dropshuffle == "underworld" or pottery in ["dungeon", "lottery"]
 
         self.door_rando_world = DoorRandoWorld(
             1, {1: "vanilla"}, {1: False}, {1: "none"}, {1: False}, {1: self.options.entrance_shuffle.current_key},
@@ -393,8 +397,8 @@ class ALttPRWorld(World):
         self.door_rando_world.crystals_needed_for_ganon = {1: self.options.crystals_needed_for_ganon.value}
         self.door_rando_world.customizer = None
         self.door_rando_world.door_type_mode = {1: self.options.door_type_shuffle.current_key}
-        self.door_rando_world.dropshuffle = {1: "none" if not (self.options.key_drop_shuffle.value or shuffled_doors) else "keys"}
-        self.door_rando_world.dungeon_counters = {1: self.options.dungeon_counters.current_key if not shuffled_doors and pottery not in ["none", "cave", "keys", "cavekeys"] else "on"}
+        self.door_rando_world.dropshuffle = {1: dropshuffle}
+        self.door_rando_world.dungeon_counters = {1: "on" if enable_dungeon_counter else self.options.dungeon_counters.current_key}
         self.door_rando_world.enemy_shuffle = {
             1: alttpr_options.enemy_shuffle_string_from_option(self.options.enemy_shuffle)}
         self.door_rando_world.experimental = {
@@ -608,6 +612,9 @@ class ALttPRWorld(World):
         if "Ocarina" in start_inventory and (self.options.pre_activated_flute or self.options.world_mode == "inverted"):
             self.options.start_inventory.value["Ocarina (Activated)"] = 1
             del self.options.start_inventory.value["Ocarina"]
+        if self.options.enemy_drop_shuffle == "underworld" and "Progressive Sword" not in start_inventory:
+            self.options.start_inventory.value["Progressive Sword"] = 1
+
         always_invalid_starting_items = ["Triforce Piece", "Green Clock", "Blue Clock", "Red Clock"]
         always_invalid_starting_items.extend([item for item in Items.progressive_items if item.startswith("Small Key")])
         invalid_items = []
