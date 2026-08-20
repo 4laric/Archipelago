@@ -464,7 +464,6 @@ def place_escape_key(possible_locations: List[str], world: ALttPRWorld, key_size
 def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item], filleritempool: List[Item], fill_locations: List[Location], world) -> None:
     # There is a technical limit of 256 multiworld items under pots
     local_pot_item_names = [
-        "Arrows (5)",
         "Big Magic",
         "Blue Shield",
         "Chicken",
@@ -478,13 +477,18 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
         "Triforce Piece",
     ]
 
-    nothing_items = [item for item in filleritempool if item.player == world.player and item.name == "Nothing"]
+    # These items look wonky anywhere other than under a pot
+    priority_pot_items = [
+        "Arrows (5)",
+        "Nothing",
+    ]
+
     local_pot_items = ([item for item in filleritempool if item.player == world.player and item.name in local_pot_item_names])
-    num_filler_items = len(local_pot_items) + len(nothing_items)
+    num_filler_items = len(local_pot_items)
     local_pot_items.extend([item for item in progitempool if item.player == world.player and item.name in local_pot_item_names])
     local_pot_items.sort()
     world.random.shuffle(local_pot_items)
-    local_pot_items.extend(nothing_items)
+    local_pot_items.extend([item for item in filleritempool if item.name in priority_pot_items])
     local_pot_items = [item for item in local_pot_items if item.name not in world.options.non_local_items]
     pot_locations = [location for location in fill_locations if location.player == world.player and "Pot" in location.name]
     num_filler_items_placed = 0
@@ -512,7 +516,7 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
     if local_fill_percent > 0:
         num_filler_items_to_place = num_filler_items * (local_fill_percent / 100)
         junk_items = ([item for item in filleritempool if item.player == world.player and
-                       (item.name in local_pot_item_names or item.name == "Nothing") and
+                       (item.name in local_pot_item_names or item.name in priority_pot_items) and
                        item.name not in world.options.non_local_items])
         junk_items.sort()
         world.random.shuffle(junk_items)
