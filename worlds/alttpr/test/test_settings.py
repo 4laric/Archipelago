@@ -46,7 +46,7 @@ class TestEnemyDropShuffleUnderworld(ALttPRTestBaseNoDefaultTests):
         "enemy_drop_shuffle": "underworld",
     }
 
-    def test_cave_enemy_drop_without_key_drop(self):
+    def test_enemy_drop_shuffle_underworld(self):
         assert self.world.door_rando_world.dropshuffle[1] == "underworld"
         assert self.world.door_rando_world.precollected_items == ["Progressive Sword"]
         assert self.world.door_rando_world.dungeon_counters[1] == "on"
