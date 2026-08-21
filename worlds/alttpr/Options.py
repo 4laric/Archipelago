@@ -248,6 +248,12 @@ def boss_shuffle_string_from_option(option):
         raise Exception(f"Invalid option {option} for boss_shuffle")
 
 
+class BomblessStart(Toggle):
+    """Start without the ability to use bombs. Two bomb capacity upgrades are added to the item pool and will give the ability to use bombs."""
+    display_name = "Bombless Start"
+    default = False
+
+
 class Shopsanity(Toggle):
     """All shops contain randomized items, including Potion Shop and Capacity Upgrade Fairy. Adds 32 items to the item pool.
     Each type of potion can be purchased at a random shop."""
@@ -476,6 +482,7 @@ class ALttPROptions(PerGameCommonOptions):
     door_type_shuffle: DoorTypeShuffle
     enemy_shuffle: EnemyShuffle
     boss_shuffle: BossShuffle
+    bombless_start: BomblessStart
     shopsanity: Shopsanity
     prize_shuffle: PrizeShuffle
     flute_shuffle: FluteShuffle
@@ -520,8 +527,9 @@ alttpr_option_groups: list[OptionGroup] = [
             SmallKeyShuffle,
             BigKeyShuffle,
             KeyDropShuffle,
-            Shopsanity,
+            BomblessStart,
             PrizeShuffle,
+            Shopsanity,
             PotShuffle,
             EnemyDropShuffle,
             LocalFillPercent,

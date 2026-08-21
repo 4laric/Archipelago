@@ -388,7 +388,7 @@ class ALttPRWorld(World):
         self.door_rando_world.any_enemy_logic = {
             1: "none" if self.options.enemy_shuffle != "logical" else "allow_all"}
         self.door_rando_world.bigkeyshuffle = {1: "wild" if self.options.big_key_shuffle.value else "none"}
-        self.door_rando_world.bombbag = {1: False}
+        self.door_rando_world.bombbag = {1: self.options.bombless_start.value}
         self.door_rando_world.boots_hint = {1: False}
         self.door_rando_world.boss_shuffle = {1: alttpr_options.boss_shuffle_string_from_option(self.options.boss_shuffle)}
         self.door_rando_world.bow_mode = {1: "progressive"}

@@ -125,6 +125,7 @@ progressive_items = [
     "Big Key (Ganons Tower)",
     "Blue Boomerang",
     "Blue Pendant",
+    "Bomb Upgrade (+10)",
     "Bombos",
     "Book of Mudora",
     "Bottle",
@@ -321,7 +322,8 @@ def create_all_items(world: ALttPRWorld) -> None:
     # Remove bomb and arrow capacity upgrades from the item pool for shopsanity. They will be added
     # to a random shop in the pre_fill() stage of generation.
     if world.options.shopsanity:
-        for upgrade in [item for item in dr_itempool if "Arrow Upgrade" in item.name or "Bomb Upgrade" in item.name]:
+        upgrades = [item for item in dr_itempool if "Arrow Upgrade" in item.name or (not world.options.bombless_start and "Bomb Upgrade" in item.name)]
+        for upgrade in upgrades:
             dr_itempool.remove(upgrade)
 
     # Itempool will not include dungeon items unless keysanity is enabled.
@@ -438,6 +440,7 @@ def place_pre_fill_items(world: ALttPRWorld) -> None:
 
         # Set the arrow and bomb capacity upgrades to be in a shop.
         # The randomizer does this by moving items around after placing everything, which isn't an option for us.
+        # The bomb upgrade will not exist if starting without bombs.
         world.random.shuffle(shop_locations)
         upgrades = [item for item in world.door_rando_world.itempool if item.name == "Arrow Upgrade (+5)" or item.name == "Bomb Upgrade (+5)"]
         for upgrade in upgrades:
