@@ -492,6 +492,7 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
     local_pot_items.sort()
     world.random.shuffle(local_pot_items)
     local_pot_items.extend([item for item in filleritempool if item.name in priority_pot_items])
+    local_pot_items.reverse()  # Prioritize Nothing and Arrows (5) in pots
     local_pot_items = [item for item in local_pot_items if item.name not in world.options.non_local_items]
     pot_locations = [location for location in fill_locations if location.player == world.player and "Pot" in location.name]
     num_filler_items_placed = 0
