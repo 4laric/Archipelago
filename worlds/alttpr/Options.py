@@ -122,7 +122,7 @@ class BigKeyShuffle(Toggle):
 
 
 class KeyDropShuffle(Toggle):
-    """Shuffle keys that are dropped by enemies or hidden under pots, regardless of pot_shuffle settings."""
+    """Shuffle keys that are dropped by enemies or hidden under pots, regardless of potsanity or enemy drop settings."""
     display_name = "Key Drop Shuffle"
     default = False
     visibility = Visibility.none
@@ -267,8 +267,9 @@ class PrizeShuffle(Toggle):
     default = False
 
 
-class PotShuffle(Choice):
-    """Pots contain randomized items. Any pots that haven't been checked will have their color changed. A max of 256 multiworld items can be under pots.
+class Potsanity(Choice):
+    """Pots contain randomized items. Any pots that haven't been checked will have their color changed, and dungeon counters
+    are forced on with dungeon or lottery settings. A max of 256 multiworld items can be under pots.
     - None - No pots are in the pool, like normal randomizer
     - Key Pots - The pots that have keys are in the pool
     - Cave Pots - The pots that are not found in dungeons are in the pool (includes Spike Cave large block)
@@ -287,7 +288,8 @@ class PotShuffle(Choice):
 
 class EnemyDropShuffle(Choice):
     """Enemies drop randomized items. With all underworld (caves + dungeons) enemies randomized, a blue square will be shown
-    in the top-left corner if there is a nearby enemy with an unclaimed check, and you start with a Sword."""
+    in the top-left corner if there is a undefeated enemy in the same supertile (usually in the current or adjacent room),
+    dungeon counters are forced on, and you start with a sword."""
     display_name = "Enemy Drop Shuffle"
     option_none = 0
     option_keys = 1
@@ -296,7 +298,7 @@ class EnemyDropShuffle(Choice):
 
 
 class LocalFillPercent(Range):
-    """Force a percentage of extra filler items from pot shuffle into your local world."""
+    """Force a percentage of extra filler items from pot and enemy drop shuffle into your own world."""
     display_name = "Local Fill Percent"
     range_start = 0
     range_end = 100
@@ -486,7 +488,7 @@ class ALttPROptions(PerGameCommonOptions):
     shopsanity: Shopsanity
     prize_shuffle: PrizeShuffle
     flute_shuffle: FluteShuffle
-    pot_shuffle: PotShuffle
+    potsanity: Potsanity
     enemy_drop_shuffle: EnemyDropShuffle
     local_fill_percent: LocalFillPercent
     pre_activated_flute: PreActivatedFlute
@@ -530,7 +532,7 @@ alttpr_option_groups: list[OptionGroup] = [
             BomblessStart,
             PrizeShuffle,
             Shopsanity,
-            PotShuffle,
+            Potsanity,
             EnemyDropShuffle,
             LocalFillPercent,
         ],

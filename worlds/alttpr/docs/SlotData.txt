@@ -66,13 +66,13 @@ This is the current slot data for the APWorld. Several fields use different name
 
             /*
              * Enemy drops
-             * Values: 'keys' for key drop shuffle, 'none' for no key drop shuffle. When key drop is forced on because of door shuffle, this value will be 'keys'.
+             * Values: 'keys' for key drop shuffle, 'none' for no key drop shuffle, 'underworld' for all cave and dungeon enemies.
              */
             'dropshuffle': 'none',
 
             /*
              * Pot drops
-             * Values: 'keys' for key drop shuffle, 'none' for no key drop shuffle. When key drop is forced on because of door shuffle, this value will be 'keys'.
+             * Values: 'none', 'keys', 'cave', 'cavekeys', 'dungeon', 'lottery'.
              */
             'pottery': 'none',
 
@@ -87,6 +87,12 @@ This is the current slot data for the APWorld. Several fields use different name
              * Values: 'none', 'wild'
              */
             'prizeshuffle': 'none',
+
+            /*
+             * Bombless Start
+             * Values: 1 for no bombs at start, 0 for vanilla
+             */
+             'bombbag': 0
 
             /*
              * World Mode

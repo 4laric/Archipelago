@@ -364,15 +364,15 @@ class ALttPRWorld(World):
         shuffled_doors = self.options.door_shuffle != "vanilla"
         if self.options.key_drop_shuffle or shuffled_doors:
             dropshuffle = self.options.enemy_drop_shuffle.current_key if self.options.enemy_drop_shuffle != "none" else "keys"
-            if self.options.pot_shuffle == "cave":
+            if self.options.potsanity == "cave":
                 pottery = "cavekeys"
-            elif self.options.pot_shuffle == "none":
+            elif self.options.potsanity == "none":
                 pottery = "keys"
             else:
-                pottery = self.options.pot_shuffle.current_key
+                pottery = self.options.potsanity.current_key
         else:
             dropshuffle = self.options.enemy_drop_shuffle.current_key
-            pottery = self.options.pot_shuffle.current_key
+            pottery = self.options.potsanity.current_key
 
         enable_dungeon_counter = shuffled_doors or dropshuffle == "underworld" or pottery in ["dungeon", "lottery"]
 

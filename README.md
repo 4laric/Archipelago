@@ -9,28 +9,34 @@ The setup for this APWorld is largely identical to the [setup guide for the exis
 * The person generating the multiworld does not need a ROM file, only the players do
 * The resulting patch for each player will have the extension .apalttpr
 
-<<<<<<< HEAD
 ## Features
 * Goal options: Crystals, Ganon, All Dungeons, Pedestal, Triforce Hunt, Ganon Hunt, Trinity (complete any one of Ganon/Pedestal/Triforce Hunt goals), Completionist (collect every check and then kill Ganon),
 * Standard and Inverted game modes,
 * Set the number of crystals required for GT/Ganon, and number of Triforce pieces,
 * All varieties of keysanity, including key drop shuffle,
 * Shopsanity
+* Potsanity
+* Enemy drops are checks
 * Enemy and boss shuffle, including logical enemy shuffle where enemies which require specific items to kill can block progression,
+* Start without bombs
 * Crossed entrance shuffle
 * Option for Zelgawoods to add two Skull Woods dropdowns into the entrance shuffle pool. Example: https://raw.githubusercontent.com/aurabot24/Archipelago-ALttPR/refs/heads/alttpr/worlds/alttpr/docs/Zelgawoods.png,
+* Random dungeon layouts
 * Option to add Pendants and Crystals to the item pool
 * Randomize flute spots and/or automatically activate the Flute upon pickup
 * Options for Pseudoboots (dash from the start, but without any of the progression from Pegasus Boots) and Mirror Scroll (Y item that warps Link to the start of the current dungeon),
 * FastROM to significantly reduce in-game lag,
 * AP items are visually distinct: progressive items appear as green clocks, useful items as blue clocks, and filler/trap items as red clocks,
 * Can be generated without a ROM file
+* Universal Tracker support
  
 ## Known Bugs:
-* Rare generation failures, especially with prize shuffle + crossed entrances (~7% failure rate)
-* Some checks aren't sent until you leave their room,
+* Rare generation failures or extremely slow generation times, mostly with door rando
+* Some checks aren't sent until you leave their room
 * Triforce Pieces and Small Keys can't be in the starting inventory,
 * The spoiler log shows a lot of events that should be hidden
+* Door rando does not work with standard mode, no keysanity, or no key drop
+* Universal Tracker does not work with logical enemy shuffle, and has key logic errors or sometimes fails to connect for door rando
 
 ## Developer installation:
   1. Clone this repo
