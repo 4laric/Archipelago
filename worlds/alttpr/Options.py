@@ -288,8 +288,8 @@ class Potsanity(Choice):
 
 class EnemyDropShuffle(Choice):
     """Enemies drop randomized items. With all underworld (caves + dungeons) enemies randomized, a blue square will be shown
-    in the top-left corner if there is a undefeated enemy in the same supertile (usually in the current or adjacent room),
-    dungeon counters are forced on, and you start with a sword."""
+    in the top-left corner if there is a undefeated enemy in the same supertile (usually in the current or adjacent room), and
+    dungeon counters are forced on. A starting sword is recommended for underworld enemy drop shuffle."""
     display_name = "Enemy Drop Shuffle"
     option_none = 0
     option_keys = 1

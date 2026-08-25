@@ -612,8 +612,6 @@ class ALttPRWorld(World):
         if "Ocarina" in start_inventory and (self.options.pre_activated_flute or self.options.world_mode == "inverted"):
             self.options.start_inventory.value["Ocarina (Activated)"] = 1
             del self.options.start_inventory.value["Ocarina"]
-        if self.options.enemy_drop_shuffle == "underworld" and "Progressive Sword" not in start_inventory:
-            self.options.start_inventory.value["Progressive Sword"] = 1
 
         always_invalid_starting_items = ["Triforce Piece", "Green Clock", "Blue Clock", "Red Clock"]
         always_invalid_starting_items.extend([item for item in Items.progressive_items if item.startswith("Small Key")])

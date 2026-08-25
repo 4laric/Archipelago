@@ -14,7 +14,7 @@ class TestKeyDropOverridesNoPottery(ALttPRTestBaseNoDefaultTests):
 class TestKeyDropOverridesCavePottery(ALttPRTestBaseNoDefaultTests):
     options = {
         "key_drop_shuffle": True,
-        "pot_shuffle": "cave",
+        "potsanity": "cave",
     }
 
     def test_key_drop_overrides_cave_pottery(self):
@@ -22,7 +22,7 @@ class TestKeyDropOverridesCavePottery(ALttPRTestBaseNoDefaultTests):
 
 class TestCavePotteryWithoutKeyDrop(ALttPRTestBaseNoDefaultTests):
     options = {
-        "pot_shuffle": "cave",
+        "potsanity": "cave",
     }
 
     def test_cave_pottery_without_key_drop(self):
@@ -37,7 +37,7 @@ class TestKeyDropAndNoSwordWithNoEnemyDropShuffle(ALttPRTestBaseNoDefaultTests):
 
     def test_key_drop_overrides_no_enemy_drop(self):
         assert self.world.door_rando_world.dropshuffle[1] == "keys"
-        assert self.world.door_rando_world.precollected_items != ["Progressive Sword"]
+        assert len(self.world.door_rando_world.precollected_items) == 0
         assert self.world.door_rando_world.dungeon_counters[1] == "pickup"
 
 
@@ -48,5 +48,5 @@ class TestEnemyDropShuffleUnderworld(ALttPRTestBaseNoDefaultTests):
 
     def test_enemy_drop_shuffle_underworld(self):
         assert self.world.door_rando_world.dropshuffle[1] == "underworld"
-        assert self.world.door_rando_world.precollected_items == ["Progressive Sword"]
+        assert len(self.world.door_rando_world.precollected_items) == 0
         assert self.world.door_rando_world.dungeon_counters[1] == "on"
