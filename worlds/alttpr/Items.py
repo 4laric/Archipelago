@@ -255,6 +255,13 @@ filler_items = [
 class ALttPRItem(Item):
     game = "The Legend of Zelda: A Link to the Past"
 
+    # Overwriting __eq__ because the base class treats Items with the same name is identical,
+    # even if they're placed in different locations
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Item):
+            return NotImplemented
+        return self.name == other.name and self.player == other.player and self.location == other.location
+
 
 def get_dungeon_items(world: ALttPRWorld) -> List[str]:
     dungeon_items = []
