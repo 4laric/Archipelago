@@ -239,12 +239,22 @@ class ALttPRWorld(World):
                     logger.error(f"Could not find item {location.item.name} in door rando itempool.")
                     raise Exception()
             else:
+                trap_classification = None
+                # If this is trap + another classification, use the other classification
+                if location.item.classification == ItemClassification.trap:
+                    if self.options.trap_appearance == "major_only":
+                        trap_classification = ItemClassification.progression
+                    elif self.options.trap_appearance == "junk_only":
+                        trap_classification = ItemClassification.filler
+                    else:
+                        trap_classification = self.random.choice([ItemClassification.progression, ItemClassification.useful, ItemClassification.filler])
+
                 # Using the green/blue/red clocks as placeholders for AP items.
                 # TODO: Edit the base ROM to add AP items and matching sprites
-                if location.item.classification & ItemClassification.progression:
+                if location.item.classification & ItemClassification.progression or trap_classification == ItemClassification.progression:
                     dr_item = ItemFactory("Green Clock", 1)
                     dr_item.price = 100
-                elif location.item.classification & ItemClassification.useful:
+                elif location.item.classification & ItemClassification.useful or trap_classification == ItemClassification.useful:
                     dr_item = ItemFactory("Blue Clock", 1)
                     dr_item.price = 50
                 else:

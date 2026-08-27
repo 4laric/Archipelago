@@ -353,6 +353,15 @@ class DungeonCounters(Choice):
     default = "pickup"
 
 
+class TrapAppearance(Choice):
+    """How Trap items will appear in-game."""
+    display_name = "Trap Appearance"
+    option_major_only = 0
+    option_junk_only = 1
+    option_anything = 2
+    default = "major_only"
+
+
 class Sprite(FreeText):
     """A custom sprite to use for Link. Must be 'Link' or the exact name of a sprite listed at https://alttpr.com/en/sprite_preview.
     If an error occurs when loading the sprite, the default Link sprite will be used."""
@@ -495,6 +504,7 @@ class ALttPROptions(PerGameCommonOptions):
     pseudoboots: Pseudoboots
     mirror_scroll: MirrorScroll
     dungeon_counters: DungeonCounters
+    trap_appearance: TrapAppearance
     sprite: Sprite
     heart_beep_rate: HeartBeepRate
     heart_color: HeartColor
@@ -570,6 +580,7 @@ alttpr_option_groups: list[OptionGroup] = [
             MirrorScroll,
             PreActivatedFlute,
             DungeonCounters,
+            TrapAppearance,
             Sprite,
             HeartBeepRate,
             HeartColor,
