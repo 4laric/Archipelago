@@ -255,13 +255,6 @@ filler_items = [
 class ALttPRItem(Item):
     game = "The Legend of Zelda: A Link to the Past"
 
-    # Overwriting __eq__ because the base class treats Items with the same name is identical,
-    # even if they're placed in different locations
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, Item):
-            return NotImplemented
-        return self.name == other.name and self.player == other.player and self.location == other.location
-
 
 def get_dungeon_items(world: ALttPRWorld) -> List[str]:
     dungeon_items = []
@@ -518,7 +511,13 @@ def place_junk_items_in_pots(progitempool: List[Item], usefulitempool: List[Item
             location.place_locked_item(item)
             fill_locations.remove(location)
             if item.name == "Triforce Piece":
-                progitempool.remove(item)
+                # All items with the same name are considered equal, so it can't differentiate between
+                # a Triforce Piece placed in a location vs. one not placed yet. Removing the wrong Triforce Piece
+                # screws up the item pool.
+                for i in range(0, len(progitempool)):
+                    if progitempool[i] == item and progitempool[i].location:
+                        progitempool.pop(i)
+                        break
             else:
                 filleritempool.remove(item)
                 num_filler_items_placed = num_filler_items_placed + 1
