@@ -27,6 +27,24 @@
 </div>
 {% endif %}
 
+{% if contact_discord %}
+<div class="card" data-testid="hosting-support"
+     style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+  <div style="flex:1; min-width:16rem;">
+    <h3 style="margin-bottom:0.25rem;">Need help with a room?</h3>
+    <p style="font-size:0.85rem;">
+      For a failed generation, a room that will not start, or a confusing connection error,
+      contact <code>{{ contact_discord }}</code> on Discord.
+    </p>
+  </div>
+  <button class="btn btn-neutral" type="button"
+          onclick="copyText('{{ contact_discord }}', this)">Copy Discord handle</button>
+  {% if er_tooling %}
+  <a class="btn btn-neutral" href="/er/report.html">Report an Elden Ring bug</a>
+  {% endif %}
+</div>
+{% endif %}
+
 <!-- ===== Downloads teaser. Unconditional: a box with no ER tooling deployed still hosts rooms
      for people who need the mod, and the mod lives on GitHub either way. ===== -->
 <div class="card" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">

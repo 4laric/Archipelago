@@ -515,6 +515,12 @@ class TestTabStrip:
         assert "/er/questlines.html" not in html
         assert 'href="/downloads"' in html and 'href="/hosting"' in html
 
+    def test_hosting_support_links_to_er_report_when_tooling_exists(
+            self, mgr, tmp_path, monkeypatch):
+        html = self._html(mgr, tmp_path, monkeypatch)
+        assert 'data-testid="hosting-support"' in html
+        assert 'href="/er/report.html"' in html
+
     def test_questlines_tab_vanishes_when_artifact_is_absent(self, mgr, tmp_path, monkeypatch):
         """An older ER_REF may have tooling but no optional questline DAG."""
         monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(tmp_path))
@@ -793,6 +799,15 @@ class TestContactDetails:
         for html in (client.get("/downloads").data.decode(),
                      client.get(f"/room/{room_id}").data.decode()):
             assert DONATION_URL in html
+
+    def test_hosting_page_promotes_room_support_before_upload(self, client):
+        html = client.get("/hosting").data.decode()
+        card = html.index('data-testid="hosting-support"')
+        upload = html.index('id="upload-form"')
+        assert card < upload
+        assert "Need help with a room?" in html
+        assert f"copyText('{CONTACT_DISCORD}', this)" in html
+        assert f"<code>{CONTACT_DISCORD}</code>" in html
 
 
 # ---------------------------------------------------------------------------
