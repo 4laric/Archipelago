@@ -94,8 +94,8 @@ here and only one of them is reproducible:
 | `rsync` them onto the box | the manual step this whole directory exists to delete |
 | **clone at a pin during the build** | an immutable `ER_REF` always builds the same image |
 
-So `ER_REF` in `.env` is the reproducibility boundary. Shipping a new apworld or wizard is a
-one-line bump plus a rebuild — a reviewable diff, not an ssh session.
+So `ER_REF` in `.env` is the room-generation reproducibility boundary. It pins the installed
+apworld. Static pages are promoted separately from the host directory described below.
 
 `ER_REF` is required and the build rejects moving branch names. Use a `vX.Y.Z` release tag or a full
 40-character commit SHA. This is enforced because `ER_REF=main` once rebuilt the public stable page
@@ -107,25 +107,27 @@ answer *which* ER build it is:
 docker compose exec web cat /app/.er-rev
 ```
 
-### Moving beta wizard
+### Deploying stable and beta pages
 
-Stable ER pages remain part of that reproducible image pin. The development builder is deliberately
-separate: er-archipelago's `tools/deploy_wizard.sh` writes the moving `main` pages to the host, and
-Compose mounts only the host's `beta/` directory read-only at `/er-static/beta`.
+er-archipelago's `tools/deploy_wizard.sh` writes stable pages, `latest.json`, and the moving beta
+channel to one host directory. Compose mounts that complete directory read-only at `/er-static`.
+This keeps room generation pinned while letting a gated static promotion become live as soon as the
+script exits, without an image rebuild.
 
 On the host, deploy the pages before or after recreating the web container:
 
 ```bash
 cd ~/er-archipelago
-ER_STATIC_DIR=/srv/er tools/deploy_wizard.sh --beta-only
+ER_STATIC_DIR=/srv/er tools/deploy_wizard.sh
 cd ~/Archipelago/deploy/docker
 docker compose up -d --force-recreate web
+curl -fsS https://YOURDOMAIN/er/latest.json >/dev/null
 curl -fsS https://YOURDOMAIN/er/beta/wizard.html >/dev/null
 ```
 
-Set `ER_BETA_STATIC_DIR` if the host-side beta directory is not `/srv/er/beta`. The bind mount is
-read-only in the container, survives container recreation, and does not replace the stable pages
-baked at `ER_REF`.
+Set `ER_HOST_STATIC_DIR` if the deploy root is not `/srv/er`. Populate it before starting the
+container: the read-only bind mount deliberately replaces the image's fallback pages. It survives
+container recreation and contains both stable files and the `beta/` subdirectory.
 
 The world is installed by `tools/gf_test.py --install-only`, which is the same entry point CI and
 the dev box use. That matters more than it looks: the apworld needs several files installed

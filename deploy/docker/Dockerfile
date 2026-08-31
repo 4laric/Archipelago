@@ -59,8 +59,8 @@ RUN mkdir -p /apworld && python /er/tools/gf_test.py --install-only --ap-dir /ap
 # line and keeps the tolerance, because it is the one artifact that may legitimately not exist at an
 # older ER_REF.
 #
-# Stable is owned by this immutable image pin. The host mounts only /er-static/beta;
-# er-archipelago's deploy_wizard.sh --beta-only updates that moving channel without touching stable.
+# Keep a stable fallback in the image for direct/non-Compose runs. Production Compose mounts the
+# host-managed deploy_wizard.sh output over /er-static, so page promotion does not rebuild rooms.
 RUN mkdir -p /er-static \
  && cp /er/wizard/wizard.html  /er-static/wizard.html \
  && cp /er/wizard/landing.html /er-static/landing.html \
