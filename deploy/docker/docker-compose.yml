@@ -23,10 +23,11 @@ services:
       ER_STATIC_DIR: /er-static      # what /er serves (wizard + check browser)
     volumes:
       - peliarch_data:/data          # uploads, room saves, logs, rooms.json
-      # Stable ER pages stay baked into the image at ER_REF. Only the moving beta channel is
-      # operator-managed: deploy_wizard.sh writes this host directory and the web process serves it
-      # read-only at /er/beta/*. Without the bind, a successful host deploy is invisible in Docker.
-      - ${ER_BETA_STATIC_DIR:-/srv/er/beta}:/er-static/beta:ro
+      # Static ER pages are promoted independently from the room-generation image. The deploy
+      # script atomically writes this host directory; mounting the whole tree makes stable
+      # wizard/latest.json changes live without rebuilding the container. ER_REF still pins the
+      # apworld used by room generation.
+      - ${ER_HOST_STATIC_DIR:-/srv/er}:/er-static:ro
     # port-per-room: publish the SAME range the orchestrator allocates (PORT_START..PORT_END).
     #
     # 🛑 THE DEFAULTS HERE AND IN THE APP MUST AGREE, and until 2026-08-13 they did not: this said

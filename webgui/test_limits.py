@@ -213,3 +213,17 @@ class TestPublishedRangeMatchesTheAllocator:
         start = int(re.search(r"^PORT_START=(\d+)", env, re.M).group(1))
         end = int(re.search(r"^PORT_END=(\d+)", env, re.M).group(1))
         assert (start, end) == (DEFAULT_PORT_START, DEFAULT_PORT_END - 1)
+
+
+class TestErStaticDeploymentMount:
+    """Stable update metadata must come from the same host tree deploy_wizard writes."""
+
+    def test_compose_mounts_the_complete_host_tree(self):
+        compose = open(os.path.join(DOCKER, "docker-compose.yml"), encoding="utf-8").read()
+        assert "${ER_HOST_STATIC_DIR:-/srv/er}:/er-static:ro" in compose
+        assert ":/er-static/beta:ro" not in compose
+
+    def test_env_example_names_the_deploy_root(self):
+        env = open(os.path.join(DOCKER, ".env.example"), encoding="utf-8").read()
+        assert re.search(r"^ER_HOST_STATIC_DIR=/srv/er$", env, re.M)
+        assert "ER_BETA_STATIC_DIR" not in env
