@@ -2,8 +2,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 
-SCRIPT = Path(__file__).parents[1] / ".github" / "scripts" / "check_er_channels.py"
-SPEC = spec_from_file_location("check_er_channels", SCRIPT)
+SCRIPT = Path(__file__).parents[1] / ".github" / "scripts" / "check_channels.py"
+SPEC = spec_from_file_location("check_channels", SCRIPT)
 assert SPEC and SPEC.loader
 channels = module_from_spec(SPEC)
 SPEC.loader.exec_module(channels)
@@ -109,3 +109,64 @@ def test_fixpack_download_pointer_drift_fails():
     bad = b'/releases/download/v0.6.0.1/ER-Archipelago-v0.6.0.1.zip'
     errors = channels.verify(fixpack_fixture(downloads=bad), "https://example.test")
     assert any("downloads points at v0.6.0.1" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------
+# The second game. Same monitor, one row over: a different repo, a different path to the builder
+# inside it, a different site root, a different bundle name, and a tag spelling that carries
+# `-beta.N`. All five used to be hardcoded, which is why there is a table now and not a copy.
+# ---------------------------------------------------------------------------
+
+BB = channels.GAMES["bb"]
+BB_LEDGER = b"stable\tv0.1.0-beta.5\t2026-09-05\nbeta\tmain\t2026-09-05\n"
+BB_STABLE = b'<script>{"apworld_version": "0.1.0-beta.5"}</script>'
+BB_BETA = b'<script>{"apworld_version": "0.1.0-beta.6"}</script>'
+BB_DOWNLOADS = b'/releases/download/v0.1.0-beta.5/BloodborneAPLauncher-win-x64.zip'
+
+
+def bb_fixture(live_stable=BB_STABLE, live_beta=BB_BETA, downloads=BB_DOWNLOADS):
+    raw = "https://raw.githubusercontent.com/4laric/bb-archipelago"
+    values = {
+        f"{raw}/main/release/CHANNELS.tsv": BB_LEDGER,
+        f"{raw}/v0.1.0-beta.5/site/wizard.html": BB_STABLE,
+        f"{raw}/main/site/wizard.html": BB_BETA,
+        "https://example.test/bb/wizard.html": live_stable,
+        "https://example.test/bb/beta/wizard.html": live_beta,
+        "https://example.test/downloads": downloads,
+    }
+    return values.__getitem__
+
+
+def test_bb_matching_channels_pass():
+    assert channels.verify(bb_fixture(), "https://example.test", game=BB) == []
+
+
+def test_bb_beta_tags_are_immutable_release_tags():
+    """`v0.1.0-beta.5` is a tag, not a branch. The prerelease FLAG is a GitHub UI checkbox and
+    says nothing about whether the ref can move under a deploy."""
+    assert channels.stable_ref(BB_LEDGER, BB.tag_pattern) == "v0.1.0-beta.5"
+
+
+def test_bb_rejects_a_moving_stable_pointer():
+    import pytest
+    with pytest.raises(ValueError):
+        channels.stable_ref(b"stable\tmain\t2026-09-05\n", BB.tag_pattern)
+
+
+def test_er_still_rejects_a_beta_tag_as_stable():
+    """The looser spelling is Bloodborne's, not the site's. ER stable stays V.R.M[.F]."""
+    import pytest
+    with pytest.raises(ValueError):
+        channels.stable_ref(b"stable\tv0.6.0-beta.1\t2026-09-05\n")
+
+
+def test_bb_download_pointer_drift_fails():
+    bad = b'/releases/download/v0.1.0-beta.4/BloodborneAPLauncher-win-x64.zip'
+    errors = channels.verify(bb_fixture(downloads=bad), "https://example.test", game=BB)
+    assert any("v0.1.0-beta.4" in error for error in errors)
+
+
+def test_bb_main_leaking_into_stable_fails():
+    errors = channels.verify(bb_fixture(live_stable=BB_BETA), "https://example.test", game=BB)
+    assert any("stable wizard is not v0.1.0-beta.5" in error for error in errors)
+    assert any("byte-identical" in error for error in errors)

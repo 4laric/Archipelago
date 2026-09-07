@@ -227,3 +227,67 @@ class TestErStaticDeploymentMount:
         env = open(os.path.join(DOCKER, ".env.example"), encoding="utf-8").read()
         assert re.search(r"^ER_HOST_STATIC_DIR=/srv/er$", env, re.M)
         assert "ER_BETA_STATIC_DIR" not in env
+
+
+class TestBbStaticDeploymentMount:
+    """The Bloodborne half of the deploy contract, read out of the files that define it.
+
+    🛑 THE ASYMMETRY WITH ER IS DELIBERATE AND IT IS THE PART WORTH PINNING. `ER_REF` is required
+    and the compose file says so with `:?`. `BB_REF` is OPTIONAL, because rollout step 1 of
+    docs/SPEC-peliarch-bloodborne.md ships the site's game table before bb-archipelago has a
+    `site/` tree to deploy, and a required build arg would have made that an all-or-nothing change
+    to a running box. If someone "tidies" BB_REF into a `:?` default, every existing box stops
+    building -- so the shape is asserted here rather than discovered at 2am.
+    """
+
+    def _compose(self):
+        return open(os.path.join(DOCKER, "docker-compose.yml"), encoding="utf-8").read()
+
+    def test_compose_mounts_the_bb_host_tree_read_only(self):
+        assert "${BB_HOST_STATIC_DIR:-/srv/bb}:/bb-static:ro" in self._compose()
+
+    def test_compose_passes_bb_ref_and_leaves_it_optional(self):
+        compose = self._compose()
+        assert re.search(r"^\s*BB_REF: \$\{BB_REF:-\}\s*$", compose, re.M), \
+            "BB_REF must stay optional: an unset one is the supported 'no Bloodborne here' state"
+        assert "BB_REF:?" not in compose
+        # ...while ER_REF stays required, which is the property that has always held.
+        assert "ER_REF:?" in compose
+
+    def test_compose_tells_the_app_where_the_tree_is(self):
+        assert "BB_STATIC_DIR: /bb-static" in self._compose()
+
+    def test_the_dockerfile_builds_and_copies_the_bb_stage(self):
+        dockerfile = open(os.path.join(DOCKER, "Dockerfile"), encoding="utf-8").read()
+        assert "AS bbtools" in dockerfile
+        assert "COPY --from=bbtools /bb-static /bb-static" in dockerfile
+        assert "COPY --from=bbtools /apworld/worlds/bloodborne /app/worlds/bloodborne" in dockerfile
+        # The world must be installed by bb-archipelago's own installer, never hand-copied: the
+        # apworld needs its beside-package data tables and a copied package imports and then
+        # fails oddly at generation time. Same argument as ER's gf_test.py --install-only.
+        assert "tools/install_apworld.py --ap-dir /apworld" in dockerfile
+
+    def test_env_example_documents_both_refs_and_both_host_dirs(self):
+        env = open(os.path.join(DOCKER, ".env.example"), encoding="utf-8").read()
+        assert re.search(r"^ER_HOST_STATIC_DIR=/srv/er$", env, re.M)
+        assert re.search(r"^BB_HOST_STATIC_DIR=/srv/bb$", env, re.M)
+        assert re.search(r"^ER_REF=v", env, re.M)
+        assert re.search(r"^BB_REF=$", env, re.M), \
+            "the shipped example must leave BB_REF blank -- that is the pre-rollout state"
+
+    def test_the_ref_validator_is_game_neutral_and_takes_both_spellings(self):
+        """One script, both refs. It was `validate-er-ref.sh` and its content never was ER's."""
+        assert not os.path.exists(os.path.join(DOCKER, "validate-er-ref.sh"))
+        script = open(os.path.join(DOCKER, "validate-ref.sh"), encoding="utf-8").read()
+        assert r"-beta\.[0-9]+" in script, "Bloodborne tags are v0.1.0-beta.N"
+        pattern = re.search(r"grep -Eq '(\^.*\$)'", script).group(1)
+        for good in ("v0.6.0", "v0.6.0.2", "v0.1.0-beta.5", "a" * 40):
+            assert re.match(pattern, good), good
+        for bad in ("main", "v0.6.0.2.1", "v0.1.0-beta", "dev"):
+            assert not re.match(pattern, bad), bad
+
+    def test_the_healthcheck_stays_on_a_route_no_deploy_state_can_break(self):
+        """/hosting, not / and not /bb/. A liveness probe must not be able to fail for a content
+        reason -- a failing probe restarts the container and kills every running room with it."""
+        compose = self._compose()
+        assert "localhost:8080/hosting" in compose

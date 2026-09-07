@@ -34,6 +34,15 @@
       letter-spacing: -0.02em;
     }
     header a.brand span { color: #a78bfa; }
+    /* ---- Game switcher, brand-adjacent ----
+       Rendered ONLY when this box has more than one game deployed. With one game it is a control
+       with nothing to choose, so a single-game box renders the header it has always rendered. */
+    .game-switch { display: flex; gap: 0.15rem; background: #0f1117; border: 1px solid #2d3148;
+                   border-radius: 999px; padding: 0.15rem; }
+    .game-switch a { color: #64748b; text-decoration: none; font-size: 0.72rem; font-weight: 700;
+                     letter-spacing: 0.04em; padding: 0.15rem 0.6rem; border-radius: 999px; }
+    .game-switch a:hover { color: #e2e8f0; }
+    .game-switch a.here { background: #2d3148; color: #e2e8f0; }
     header nav { display: flex; gap: 1rem; margin-left: auto; align-items: center; }
     header nav a {
       color: #94a3b8;
@@ -272,20 +281,33 @@
   So this copy is server-rendered and peliarch's own suite asserts on it -- see
   TestTabStrip in test_app.py, which pins the exact hrefs. If you add or move a tab, that test
   fails here and `tools/check_tabs.py` fails in er-archipelago. Two loud failures, no silent skew.
+
+  🛑 AND NOW THERE ARE TWO GAMES, SO THERE ARE THREE COPIES. The strip below is rendered FOR ONE
+  GAME -- `game`, which a shared page (/downloads, /hosting, /room/<id>) leaves at the default,
+  Elden Ring. bb-archipelago ships its own `site/tabs.js` rendering the same shape for `bb`.
+  TestTabStrip::test_bb_strip_matches_jinja is the contract between them.
 ============================================================================ #}
 <header>
   <a class="brand" href="/">Peli<span>arch</span></a>
-  <nav id="er-tabs" data-tab="{{ tab|default('') }}">
-    {#  Builder, Questlines, Checks and Report all serve out of ER_STATIC_DIR. On a box with no ER tooling
-        deployed they are 404s, and a tab that 404s is worse than a tab that is not there --
-        which is the same rule the /er/ teaser on the hosting page already follows. Downloads and
-        Hosting are peliarch's own routes and are always real. #}
-    {% if er_tooling %}<a href="/er/"{% if tab == 'builder' %} class="on"{% endif %}>Builder</a>{% endif %}
+  {#  The switcher, and the ONLY new element on an Elden Ring page. Hidden entirely on a
+      single-game box: a chooser with one choice is noise, and rollout step 1 of
+      SPEC-peliarch-bloodborne.md ships this refactor before Bloodborne exists. #}
+  {% if games|length > 1 %}
+  <span class="game-switch" data-testid="game-switch">
+    {% for g in games %}<a href="{{ g.root }}"{% if g.key == game.key %} class="here"{% endif %}>{{ g.short }}</a>{% endfor %}
+  </span>
+  {% endif %}
+  <nav id="er-tabs" data-tab="{{ tab|default('') }}" data-game="{{ game.key }}">
+    {#  Builder, the game's extra tabs, Checks and Report all serve out of that game's static dir.
+        On a box where it was never deployed they are 404s, and a tab that 404s is worse than a tab
+        that is not there -- the same rule the wizard teaser on the hosting page already follows.
+        Downloads and Hosting are peliarch's own routes, shared by every game, and always real. #}
+    {% if game.available %}<a href="{{ game.builder_url }}"{% if tab == 'builder' %} class="on"{% endif %}>Builder</a>{% endif %}
     <a href="/downloads"{% if tab == 'downloads' %} class="on"{% endif %}>Downloads</a>
     <a href="/hosting"{% if tab == 'hosting' %} class="on"{% endif %}>Hosting</a>
-    {% if questline_dag %}<a href="/er/questlines.html"{% if tab == 'questlines' %} class="on"{% endif %}>Questlines</a>{% endif %}
-    {% if er_tooling %}<a href="/er/checks.html"{% if tab == 'checks' %} class="on"{% endif %}>Checks</a>{% endif %}
-    {% if er_tooling %}<a href="/er/report.html"{% if tab == 'report' %} class="on"{% endif %}>Report a bug</a>{% endif %}
+    {% for t in game.extra_tabs %}{% if game.has(t.artifact) %}<a href="{{ game.root }}{{ t.path }}"{% if tab == t.key %} class="on"{% endif %}>{{ t.label }}</a>{% endif %}{% endfor %}
+    {% if game.available %}<a href="{{ game.root }}checks.html"{% if tab == 'checks' %} class="on"{% endif %}>Checks</a>{% endif %}
+    {% if game.available %}<a href="{{ game.root }}report.html"{% if tab == 'report' %} class="on"{% endif %}>Report a bug</a>{% endif %}
     <a class="donate-link" href="{{ donation_url }}" target="_blank" rel="noopener noreferrer">☕ Buy me a coffee</a>
   </nav>
 </header>

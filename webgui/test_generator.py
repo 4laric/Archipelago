@@ -458,3 +458,52 @@ class TestHostingPageAdvertisesHonestly:
         html = self._client(monkeypatch, er_dir=str(tmp_path), ap_root=str(tmp_path),
                             generate=False).get("/hosting").data.decode()
         assert "starts the room here" not in html
+
+
+# ---------------------------------------------------------------------------
+# The second game reaches the generator unchanged
+# ---------------------------------------------------------------------------
+
+BB_YAML = (b"name: Hunter\ngame: Bloodborne\nBloodborne:\n"
+           b"  goal: all_great_ones\n  include_dlc: false\n")
+
+
+def test_generate_accepts_a_bloodborne_yaml(tmp_path, monkeypatch):
+    """`/generate` is game-agnostic and must STAY game-agnostic.
+
+    `validate_yamls` only asks for a `game:` key -- it never had a list of allowed games and must
+    not grow one, because the apworld installed in AP_ROOT is the real answer to "can this box
+    generate that". This drives the whole route with a Bloodborne yaml against an AP tree that has
+    `worlds/bloodborne` in it, which is exactly what the Dockerfile's `bbtools` stage produces.
+    """
+    import webgui.app as appmod
+
+    root = tmp_path / "ap"
+    (root / "worlds" / "bloodborne").mkdir(parents=True)
+    (root / "worlds" / "bloodborne" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "Generate.py").write_text("# real enough", encoding="utf-8")
+
+    # Cheap rejection layer first: no world list, no game allowlist, no surprise.
+    generator.validate_yamls([BB_YAML])
+
+    monkeypatch.setattr(appmod, "AP_ROOT", str(root))
+    monkeypatch.setattr(appmod, "GENERATE_ENABLED", True)
+    seen = {}
+
+    def _fake(yamls, ap_root, **kw):
+        seen["root"] = ap_root
+        seen["yaml"] = yamls[0]
+        return generator.GeneratedSeed(b"PK\x03\x04", "AP_bb.zip", "")
+    monkeypatch.setattr(generator, "generate", _fake)
+
+    mgr = _Mgr()
+    app = create_app(manager=mgr)
+    app.config["TESTING"] = True
+    r = app.test_client().post("/generate", data={"yaml": BB_YAML.decode(), "name": "bb seed"},
+                               headers={"Accept": "application/json"})
+    assert r.status_code == 201, r.data
+    assert r.get_json()["seed_file"] == "AP_bb.zip"
+    assert b"Bloodborne" in seen["yaml"]
+    assert os.path.isdir(os.path.join(seen["root"], "worlds", "bloodborne")), \
+        "the generator must run in the tree the bbtools stage installed the world into"
+    assert mgr.created and mgr.created[0]["name"] == "bb seed"

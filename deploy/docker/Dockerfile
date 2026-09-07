@@ -24,8 +24,8 @@ FROM python:3.12-slim-bookworm AS ertools
 ARG ER_REPO=https://github.com/4laric/er-archipelago.git
 ARG ER_API=https://api.github.com/repos/4laric/er-archipelago
 ARG ER_REF
-COPY deploy/docker/validate-er-ref.sh /usr/local/bin/validate-er-ref
-RUN validate-er-ref "$ER_REF"
+COPY deploy/docker/validate-ref.sh /usr/local/bin/validate-ref
+RUN validate-ref "$ER_REF" ER_REF
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
@@ -69,6 +69,63 @@ RUN mkdir -p /er-static \
  && cp /er/er-archipelago-check-browser.html /er-static/checks.html
 RUN cp /er/er-archipelago-questline-dag.html /er-static/questlines.html 2>/dev/null || true
 
+# ---- stage 1c: the Bloodborne tooling, pinned ----
+# Mirrors `ertools` exactly, with ONE deliberate difference: BB_REF IS OPTIONAL. Rollout step 1 of
+# docs/SPEC-peliarch-bloodborne.md ships the site's game table before bb-archipelago has published
+# a `site/` tree, and a build arg that is required from that moment would have made this an
+# all-or-nothing change to a running box. Unset BB_REF = empty /bb-static and no bloodborne
+# apworld, which webgui reads as "Bloodborne is not deployed here" and renders nothing for.
+#
+# When it IS set it is validated by the same script as ER_REF, cloned at the pin, and its apworld
+# installed by bb-archipelago's `tools/install_apworld.py` -- the equivalent of er-archipelago's
+# `gf_test.py --install-only`, and for the same reason: ONE definition of "the installed world",
+# shared by CI, the dev box and this image, so the beside-package data tables cannot drift.
+FROM python:3.12-slim-bookworm AS bbtools
+ARG BB_REPO=https://github.com/4laric/bb-archipelago.git
+ARG BB_API=https://api.github.com/repos/4laric/bb-archipelago
+ARG BB_REF=
+COPY deploy/docker/validate-ref.sh /usr/local/bin/validate-ref
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Same cache-bust as ertools: `ADD <url>` is re-fetched on EVERY build, so the resolved immutable
+# revision becomes part of the build inputs and a moved BB_REF cannot reuse the old pin's layers.
+# `${BB_REF:-main}` only keeps the URL fetchable while the ref is unset; nothing is cloned then.
+ADD ${BB_API}/commits/${BB_REF:-main} /bb-ref.json
+
+# NO BLANKET `|| true` -- the ertools note applies here word for word. Every file below is a name
+# the site links (/bb/checks.html, /bb/report.html, /bb/tabs.js) and a missing one must fail the
+# build, not produce an image that serves a 404 under a working-looking front page.
+RUN mkdir -p /apworld/worlds /bb-static \
+ && if [ -z "$BB_REF" ]; then \
+        echo "BB_REF unset: building without Bloodborne (webgui will not advertise it)"; \
+        : > /bb-rev.txt; \
+    else \
+        validate-ref "$BB_REF" BB_REF \
+     && git init /bb \
+     && git -C /bb remote add origin "$BB_REPO" \
+     && git -C /bb fetch --depth 1 origin "$BB_REF" \
+     && git -C /bb checkout --detach FETCH_HEAD \
+     && git -C /bb rev-parse HEAD > /bb-rev.txt \
+     && if [ ! -f /bb/tools/install_apworld.py ]; then \
+            echo "bb-archipelago $BB_REF has no tools/install_apworld.py -- it is the only" >&2; \
+            echo "supported way to install the world (SPEC-peliarch-bloodborne.md 4.1)." >&2; \
+            exit 1; \
+        fi \
+     && python /bb/tools/install_apworld.py --ap-dir /apworld \
+     && cp /bb/site/landing.html          /bb-static/landing.html \
+     && cp /bb/site/wizard.html           /bb-static/wizard.html \
+     && cp /bb/site/checks.html           /bb-static/checks.html \
+     && cp /bb/site/report.html           /bb-static/report.html \
+     && cp /bb/site/tabs.js               /bb-static/tabs.js \
+     && cp /bb/site/options-metadata.json /bb-static/options-metadata.json \
+     && cp /bb/release/latest.json        /bb-static/latest.json; \
+    fi
+# The world dir must exist for stage 2's COPY whether or not it was installed.
+RUN mkdir -p /apworld/worlds/bloodborne
+
+
 # ---- stage 2: python runtime (web GUI + per-room MultiServer) ----
 FROM python:3.12-slim-bookworm
 WORKDIR /app
@@ -91,12 +148,19 @@ COPY --from=ertools /apworld/worlds/eldenring /app/worlds/eldenring
 COPY --from=ertools /er-static /er-static
 COPY --from=ertools /er-rev.txt /app/.er-rev
 
+# ...and the same three for Bloodborne. All three are EMPTY when BB_REF is unset, which is the
+# supported "not deployed here" state: /bb/ 404s and nothing else changes.
+COPY --from=bbtools /apworld/worlds/bloodborne /app/worlds/bloodborne
+COPY --from=bbtools /bb-static /bb-static
+COPY --from=bbtools /bb-rev.txt /app/.bb-rev
+
 ENV PYTHONUNBUFFERED=1 \
     DATA_DIR=/data \
     STORE_PATH=/data/rooms.json \
     REPO_DIR=/app \
     AP_ROOT=/app \
-    ER_STATIC_DIR=/er-static
+    ER_STATIC_DIR=/er-static \
+    BB_STATIC_DIR=/bb-static
 
 EXPOSE 8080
 

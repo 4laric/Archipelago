@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import sys
 import time
 import zipfile
@@ -30,6 +31,7 @@ if REPO_DIR not in sys.path:
 
 from webgui.orchestrator import Room, validate_archipelago_upload
 from webgui import app as app_module
+from webgui import releases
 from webgui.app import create_app, DONATION_URL, CONTACT_DISCORD, CONTACT_GITHUB
 
 
@@ -527,6 +529,157 @@ class TestTabStrip:
         html = create_app(manager=mgr).test_client().get("/hosting").data.decode()
         assert 'href="/er/"' in html
         assert 'href="/er/questlines.html"' not in html
+
+    # ---- the second game ----------------------------------------------------------------
+
+    #: What bb-archipelago's `site/tabs.js` has to render, in this order. Bloodborne has no
+    #: questline DAG, so the strip is five links -- and its Builder is `/bb/wizard.html`, because
+    #: `/bb/` is the landing page. (`/er/` means the builder for historical reasons that are not
+    #: worth propagating to a second game.)
+    BB_TABS = [
+        "/bb/wizard.html", "/downloads", "/hosting", "/bb/checks.html", "/bb/report.html",
+    ]
+
+    def _two_game_client(self, mgr, tmp_path, monkeypatch):
+        """Both games deployed, and NO network: /downloads resolves releases and this suite must
+        never depend on GitHub being up."""
+        er, bb = tmp_path / "er", tmp_path / "bb"
+        er.mkdir()
+        bb.mkdir()
+        (er / "questlines.html").write_text("questline DAG", encoding="utf-8")
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(er))
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", str(bb))
+        monkeypatch.setattr(releases, "_fetch_channels",
+                            lambda timeout, url=None: (_ for _ in ()).throw(OSError("offline")))
+        releases.reset_cache()
+        return create_app(manager=mgr).test_client(), bb
+
+    def test_bb_strip_matches_jinja(self, mgr, tmp_path, monkeypatch):
+        """The Bloodborne strip is defined twice and this is the contract between the copies.
+
+        bb-archipelago's `site/tabs.js` renders the same links into landing.html, wizard.html,
+        checks.html and report.html -- single files that never pass through Jinja and so cannot
+        inherit base.html. This pins the Jinja half, and, when a tabs.js really is deployed into
+        BB_STATIC_DIR on this box, reads the deployed file and asserts the two agree (the way
+        test_limits.py reads the deploy files). Skew between them is silent everywhere else.
+        """
+        client, bb_dir = self._two_game_client(mgr, tmp_path, monkeypatch)
+        html = client.get("/downloads/bb").data.decode()
+        found = [t for t in self.BB_TABS if 'href="%s"' % t in html]
+        assert found == self.BB_TABS, "missing or reordered: %s" % found
+        assert 'href="/bb/questlines.html"' not in html, "Bloodborne has no questline DAG"
+
+    def test_bb_strip_matches_a_deployed_tabs_js(self, mgr, tmp_path, monkeypatch):
+        """The other half, when it is really on this box: read the deployed file and compare.
+
+        Skipped where BB_STATIC_DIR holds no tabs.js -- which is every CI run and every dev box,
+        because that file is built in bb-archipelago. `test_bb_strip_matches_jinja` pins this
+        repo's half unconditionally; this one catches a deploy that installed a stale strip.
+        """
+        client, bb_dir = self._two_game_client(mgr, tmp_path, monkeypatch)
+        deployed = bb_dir / "tabs.js"
+        if not deployed.is_file():
+            pytest.skip("no site/tabs.js deployed on this box (it is built in bb-archipelago)")
+        links = re.findall(r"""href=['"]([^'"]+)['"]""",
+                           deployed.read_text(encoding="utf-8"))
+        assert [x for x in links if x in self.BB_TABS] == self.BB_TABS
+
+    def test_er_pages_gain_only_the_switcher(self, mgr, tmp_path, monkeypatch):
+        """Rollout step 1: the ER strip is what it always was, plus exactly one new element.
+
+        The switcher only appears once a second game is really deployed, and it must not reorder,
+        rename or drop a single ER tab on the way in.
+        """
+        one = self._html(mgr, tmp_path, monkeypatch)
+        assert 'data-testid="game-switch"' not in one, \
+            "a chooser with one choice is noise, and rollout step 1 ships before Bloodborne exists"
+
+        client, _ = self._two_game_client(mgr, tmp_path, monkeypatch)
+        two = client.get("/hosting").data.decode()
+        found = [t for t in self.TABS if 'href="%s"' % t in two]
+        assert found == self.TABS, "ER tabs changed when Bloodborne arrived: %s" % found
+        assert 'data-testid="game-switch"' in two
+        assert 'href="/bb/"' in two, "the switcher lists every deployed game"
+
+
+class TestGameTable:
+    """Two games, one table, and neither can take the other down.
+
+    🛑 THE POINT OF THE TABLE IS ISOLATION AS MUCH AS REUSE. Before it, one hardcoded directory
+    served `/`, `/er/` and four tabs. A second game added by copying that would have been a second
+    way for a half-finished deploy to 503 the front door. An unset BB_STATIC_DIR is a normal,
+    supported state -- it is the state of the live box until rollout step 3 -- and it must cost
+    `/er/` exactly nothing.
+    """
+
+    def _client(self, mgr, monkeypatch, er="", bb=""):
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", er)
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", bb)
+        return create_app(manager=mgr).test_client()
+
+    def test_every_game_root_serves_its_landing_and_404s_when_unset(
+            self, mgr, tmp_path, monkeypatch):
+        er, bb = tmp_path / "er", tmp_path / "bb"
+        er.mkdir()
+        bb.mkdir()
+        # `/er/` is the BUILDER; `/bb/` is the LANDING page. Not an inconsistency to tidy away:
+        # every ER link ever posted points at /er/ meaning the wizard.
+        (er / "wizard.html").write_text("er wizard", encoding="utf-8")
+        (bb / "landing.html").write_text("bb landing", encoding="utf-8")
+
+        c = self._client(mgr, monkeypatch, er=str(er), bb=str(bb))
+        assert c.get("/er/").data == b"er wizard"
+        assert c.get("/bb/").data == b"bb landing"
+
+        # The load-bearing half: Bloodborne undeployed must not touch Elden Ring.
+        c = self._client(mgr, monkeypatch, er=str(er), bb="")
+        assert c.get("/er/").status_code == 200
+        r = c.get("/bb/")
+        assert r.status_code == 404
+        assert "BB_STATIC_DIR" in r.get_json()["error"]
+        assert "Bloodborne" in r.get_json()["error"]
+
+        # ...and symmetrically, an ER deploy that has not landed yet must not 404 Bloodborne.
+        c = self._client(mgr, monkeypatch, er="", bb=str(bb))
+        assert c.get("/bb/").status_code == 200
+        assert c.get("/er/").status_code == 404
+
+
+class TestHostingCardsPerGame:
+    """`/hosting` names every deployed game, not the one it was written for.
+
+    The container healthcheck hits this route, so it must never become game-conditional -- but its
+    CARDS are, and a Bloodborne player arriving at a page that only says "Elden Ring" has been told
+    this site is not for them.
+    """
+
+    def _html(self, mgr, tmp_path, monkeypatch, *, bb=True):
+        er, bbdir = tmp_path / "er", tmp_path / "bb"
+        er.mkdir()
+        bbdir.mkdir()
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", str(er))
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", str(bbdir) if bb else "")
+        return create_app(manager=mgr).test_client().get("/hosting").data.decode()
+
+    def test_each_deployed_game_gets_a_build_card_and_a_report_link(
+            self, mgr, tmp_path, monkeypatch):
+        html = self._html(mgr, tmp_path, monkeypatch)
+        assert "Build a Elden Ring seed" in html
+        assert "Build a Bloodborne seed" in html
+        assert 'href="/er/report.html"' in html
+        assert 'href="/bb/report.html"' in html
+
+    def test_an_undeployed_game_is_absent_not_empty(self, mgr, tmp_path, monkeypatch):
+        html = self._html(mgr, tmp_path, monkeypatch, bb=False)
+        assert "Bloodborne" not in html
+        assert "/bb/" not in html
+
+    def test_the_route_is_never_game_conditional(self, mgr, tmp_path, monkeypatch):
+        """The container healthcheck is `urlopen('/hosting')`, and a non-2xx restarts the box --
+        killing every running room with it. No deployment state may make this route fail."""
+        monkeypatch.setattr(app_module, "ER_STATIC_DIR", "")
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", "")
+        assert create_app(manager=mgr).test_client().get("/hosting").status_code == 200
 
 
 # ---------------------------------------------------------------------------
