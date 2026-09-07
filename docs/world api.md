@@ -551,7 +551,10 @@ In addition, the following methods can be implemented and are called in this ord
   called to modify item placement before, during, and after the regular fill process; all finishing before
   `generate_output`. Any items that need to be placed during `pre_fill` should not exist in the itempool, and if there
   are any items that need to be filled this way, but need to be in state while you fill other items, they can be
-  returned from `get_pre_fill_items`.
+  returned from `get_pre_fill_items`. `pre_fill` is for the world's own locations. `fill_hook` is called from
+  `distribute_items_restrictive` after every world's `pre_fill` and after early items have been placed, but before the
+  priority and progression fills, and only for the default `balanced` fill algorithm; a world that needs to place onto
+  another world's locations should do it there.
 * `generate_output(self, output_directory: str)`
   creates the output files if there is output to be generated. When this is called,
   `self.multiworld.get_locations(self.player)` has all locations for the player, with attribute `item` pointing to the
@@ -561,7 +564,9 @@ In addition, the following methods can be implemented and are called in this ord
 
 All instance methods can, optionally, have a class method defined which will be called after all instance methods are
 finished running, by defining a method with `stage_` in front of the method name. These class methods will have the
-args `(cls, multiworld: MultiWorld)`, followed by any other args that the relevant instance method has.
+args `(cls, multiworld: MultiWorld)`, followed by any other args that the relevant instance method has. They are called
+once per world class, in class name order, so a world must not assume that another world's stage method has or has not
+already run.
 
 #### generate_early
 
@@ -842,6 +847,27 @@ def pre_fill(self) -> None:
     # in most cases it's better to do this at the same time the itempool is
     # filled to avoid accidental duplicates, such as manually placed and still in the itempool
 ```
+
+#### fill_hook
+
+```python
+def fill_hook(self, progitempool: list[Item], usefulitempool: list[Item], filleritempool: list[Item],
+              fill_locations: list[Location]) -> None:
+    # place an item onto another world's location from the pools the hook is handed, never from multiworld.itempool,
+    # which is no longer read by the fill after this point
+    item = next(item for item in progitempool if item.player == self.player)
+    locations = [location for location in fill_locations
+                 if not location.item and not location.locked
+                 and location.progress_type is not LocationProgressType.EXCLUDED
+                 and location.item_rule(item)]
+    # use fill_restrictive for advancement items, so that the placement respects logic
+    fill_restrictive(self.multiworld, self.multiworld.state, locations, [item], lock=True)
+    # remove what was placed from the lists the hook was handed
+    progitempool.remove(item)
+    fill_locations.remove(item.location)
+```
+
+`test_can_remove_locations_in_fill_hook` in `test/general/test_fill.py` covers this contract.
 
 ### Generate Output
 
