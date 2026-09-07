@@ -14,6 +14,14 @@ services:
         # Stable generation + static pages must be an immutable release. `main` here promoted the
         # development wizard to /er/ while /downloads still named v0.4.6 (#863).
         ER_REF: ${ER_REF:?Set ER_REF to an immutable Elden Ring release tag, for example v0.6.0.2}
+        # Bloodborne, same shape -- and OPTIONAL, unlike ER_REF. Left unset the image builds with
+        # an empty /bb-static and no bloodborne apworld, which webgui reads as "not deployed
+        # here": /bb/ 404s, the game switcher does not appear, and /downloads and /hosting say
+        # nothing about it. That is the supported state until rollout step 3 of
+        # docs/SPEC-peliarch-bloodborne.md. Set it and it is validated exactly like ER_REF: an
+        # immutable tag (v0.1.0-beta.5) or a full SHA, never a branch.
+        BB_REPO: ${BB_REPO:-https://github.com/4laric/bb-archipelago.git}
+        BB_REF: ${BB_REF:-}
     env_file: .env
     environment:
       DATA_DIR: /data
@@ -21,6 +29,7 @@ services:
       REPO_DIR: /app
       AP_ROOT: /app                  # the tree POST /generate runs Generate.py in
       ER_STATIC_DIR: /er-static      # what /er serves (wizard + check browser)
+      BB_STATIC_DIR: /bb-static      # what /bb serves (landing + wizard + check browser)
     volumes:
       - peliarch_data:/data          # uploads, room saves, logs, rooms.json
       # Static ER pages are promoted independently from the room-generation image. The deploy
@@ -28,6 +37,11 @@ services:
       # wizard/latest.json changes live without rebuilding the container. ER_REF still pins the
       # apworld used by room generation.
       - ${ER_HOST_STATIC_DIR:-/srv/er}:/er-static:ro
+      # The same arrangement for Bloodborne, written by bb-archipelago's tools/deploy_site.sh.
+      # 🛑 THE HOST DIRECTORY MUST EXIST before `up`, even empty: Docker creates a missing bind
+      # source as an empty directory, and an empty /bb-static is exactly the "not deployed"
+      # state -- /bb/ 404s and nothing else changes. Pinned by TestBbStaticDeploymentMount.
+      - ${BB_HOST_STATIC_DIR:-/srv/bb}:/bb-static:ro
     # port-per-room: publish the SAME range the orchestrator allocates (PORT_START..PORT_END).
     #
     # 🛑 THE DEFAULTS HERE AND IN THE APP MUST AGREE, and until 2026-08-13 they did not: this said

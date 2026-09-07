@@ -7,13 +7,13 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/scripts/check_er_channels.py"
+      - ".github/scripts/check_channels.py"
       - ".github/workflows/er-channel-parity.yml"
       - "deploy/docker/**"
       - "webgui/test_er_channels.py"
   pull_request:
     paths:
-      - ".github/scripts/check_er_channels.py"
+      - ".github/scripts/check_channels.py"
       - ".github/workflows/er-channel-parity.yml"
       - "deploy/docker/**"
       - "webgui/test_er_channels.py"
@@ -32,10 +32,10 @@ jobs:
       - run: pytest -q webgui/test_er_channels.py
       - name: Reject moving ER refs
         run: |
-          deploy/docker/validate-er-ref.sh v0.4.6
-          deploy/docker/validate-er-ref.sh v0.6.0.2
-          ! deploy/docker/validate-er-ref.sh main
-          ! deploy/docker/validate-er-ref.sh v0.6.0.2.1
+          deploy/docker/validate-ref.sh v0.4.6 ER_REF
+          deploy/docker/validate-ref.sh v0.6.0.2 ER_REF
+          ! deploy/docker/validate-ref.sh main ER_REF
+          ! deploy/docker/validate-ref.sh v0.6.0.2.1 ER_REF
       - name: Compose requires an immutable ER release
         working-directory: deploy/docker
         run: |
@@ -47,4 +47,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6.0.2
-      - run: python .github/scripts/check_er_channels.py --base-url https://peliarch.ca
+      - run: python .github/scripts/check_channels.py --game er --base-url https://peliarch.ca

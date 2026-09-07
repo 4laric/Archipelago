@@ -22,7 +22,8 @@ REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_DIR not in sys.path:
     sys.path.insert(0, REPO_DIR)
 
-from webgui import releases
+from webgui import games, releases
+from webgui import app as app_module
 from webgui.app import create_app
 from webgui.test_app import MockManager
 
@@ -79,7 +80,7 @@ CHANNELS = "stable\tv0.3.10\t2026-08-10\n" "beta\tmain\t2026-08-11\n"
 
 @pytest.fixture(autouse=True)
 def _clean_cache(monkeypatch):
-    monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: CHANNELS)
+    monkeypatch.setattr(releases, "_fetch_channels", lambda timeout, url=None: CHANNELS)
     releases.reset_cache()
     yield
     releases.reset_cache()
@@ -121,7 +122,7 @@ class TestResolve:
         newer = _release("v0.3.11", "2026-08-11T03:00:16Z",
                          [_asset("ER-Archipelago-v0.3.11.zip"), _asset("eldenring.apworld")])
         stub([newer] + COMPLETE)
-        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: CHANNELS)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout, url=None: CHANNELS)
         assert releases.get_releases().tag == "v0.3.10"
 
     def test_both_assets_come_from_one_tag(self, stub):
@@ -142,7 +143,7 @@ class TestResolve:
         """
         stub(APWORLD_MISSING)
         monkeypatch.setattr(releases, "_fetch_channels",
-                            lambda timeout: "stable\tv0.3.11\t2026-08-12\nbeta\tmain\t2026-08-12\n")
+                            lambda timeout, url=None: "stable\tv0.3.11\t2026-08-12\nbeta\tmain\t2026-08-12\n")
         rel = releases.get_releases()
         assert rel.tag == "v0.3.11"
         apworld = rel.asset("apworld")
@@ -290,7 +291,7 @@ class TestDownloadsPage:
     def test_a_missing_apworld_is_labelled_with_its_older_tag(self, client, monkeypatch):
         """The older-tag link must never appear without the older tag written on it."""
         monkeypatch.setattr(releases, "_fetch_channels",
-                            lambda timeout: "stable\tv0.3.11\t2026-08-12\nbeta\tmain\t2026-08-12\n")
+                            lambda timeout, url=None: "stable\tv0.3.11\t2026-08-12\nbeta\tmain\t2026-08-12\n")
         html = client(APWORLD_MISSING).get("/downloads").data.decode()
         assert "did not publish a bare apworld" in html
         # The offered fallback is present AND named.
@@ -338,7 +339,7 @@ class TestFixpackTags:
 
     def test_stable_resolves_a_four_segment_tag(self, stub, monkeypatch):
         stub(FIXPACK)
-        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: FIXPACK_CHANNELS)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout, url=None: FIXPACK_CHANNELS)
         rel = releases.get_releases()
         assert rel.ok and rel.tag == "v0.6.0.2"
         assert rel.asset("bundle").filename == "ER-Archipelago-v0.6.0.2.zip"
@@ -349,7 +350,7 @@ class TestFixpackTags:
         comparison of the tags never happens -- pin that, because '0.6.0.2' < '0.6.0' is false
         lexically but 'v0.6.0.10' < 'v0.6.0.2' is true, and a sort on the string would be wrong."""
         stub(list(reversed(FIXPACK)))
-        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: FIXPACK_CHANNELS)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout, url=None: FIXPACK_CHANNELS)
         assert releases.get_releases().tag == "v0.6.0.2"
 
         def key(tag):
@@ -363,8 +364,153 @@ class TestFixpackTags:
         no_apworld = [_release("v0.6.0.2", "2026-09-07T09:00:00Z",
                                [_asset("ER-Archipelago-v0.6.0.2.zip")])] + FIXPACK[1:]
         stub(no_apworld)
-        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: FIXPACK_CHANNELS)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout, url=None: FIXPACK_CHANNELS)
         rel = releases.get_releases()
         assert rel.tag == "v0.6.0.2"
         assert not rel.asset("apworld").available
         assert rel.asset("apworld").last_seen_tag == "v0.6.0.1"
+
+
+# ---------------------------------------------------------------------------
+# The second game. Bloodborne publishes every build as a GitHub PRERELEASE, has no rolling `dev`
+# release, and shares this module's resolver with Elden Ring -- three ways the single-game code
+# could have hidden it, all three pinned here.
+# ---------------------------------------------------------------------------
+
+def _bb_asset(name, size=1000):
+    return {
+        "name": name,
+        "size": size,
+        "browser_download_url":
+            "https://github.com/4laric/bb-archipelago/releases/download/X/" + name,
+    }
+
+
+#: The real shape on 2026-09-07: three beta tags, every one of them flagged prerelease.
+BB_RELEASES = [
+    _release("v0.1.0-beta.5", "2026-09-05T10:00:00Z",
+             [_bb_asset("BloodborneAPLauncher-win-x64.zip", 48000000),
+              _bb_asset("bloodborne.apworld", 900000)], prerelease=True),
+    _release("v0.1.0-beta.4", "2026-08-30T10:00:00Z",
+             [_bb_asset("BloodborneAPLauncher-win-x64.zip"),
+              _bb_asset("bloodborne.apworld")], prerelease=True),
+]
+
+BB_CHANNELS = "stable\tv0.1.0-beta.5\t2026-09-05\nbeta\tmain\t2026-09-05\n"
+
+
+@pytest.fixture
+def bb_stub(monkeypatch):
+    """Both ledgers and both release lists, chosen by the URL and the repo the caller asks for."""
+    def _channels(timeout, url=None):
+        return BB_CHANNELS if url and "bb-archipelago" in url else CHANNELS
+    def _raw(repo, timeout):
+        return BB_RELEASES if "bb-archipelago" in repo else COMPLETE
+    monkeypatch.setattr(releases, "_fetch_channels", _channels)
+    monkeypatch.setattr(releases, "_fetch_raw", _raw)
+
+
+class TestBloodborneDownloads:
+
+    def test_stable_pointer_accepts_a_prerelease_tag(self, bb_stub):
+        """🛑 THE LEDGER IS THE POINTER; GITHUB'S CHECKBOX IS NOT.
+
+        The resolver used to drop every prerelease before looking for the ledger's tag. Every
+        Bloodborne release is a prerelease, so under the old rule the Bloodborne section could
+        never render a build that exists -- the page would have been permanently degraded against
+        a repo that was publishing normally. Promotion is a reviewed commit to an append-only
+        file; that is a stronger claim than a checkbox in the GitHub UI.
+        """
+        rel = releases.get_releases(games.BB)
+        assert rel.ok
+        assert rel.tag == "v0.1.0-beta.5"
+        assert rel.asset("bundle").filename == "BloodborneAPLauncher-win-x64.zip"
+        assert rel.asset("apworld").filename == "bloodborne.apworld"
+
+    def test_elden_ring_still_ignores_unpromoted_prereleases(self, bb_stub):
+        """The other half of the change: the flag stopped being a FILTER, not a fact."""
+        assert releases.get_releases(games.ER).tag == "v0.3.10"
+
+    def test_dev_block_hidden_without_a_dev_release(self, bb_stub, tmp_path, monkeypatch):
+        """Bloodborne ships no rolling `dev` build, so there is no card -- not an empty one.
+
+        `dev.ok == False` means "today's development build failed", which the card says out loud.
+        "This game has no development channel" is a different statement and the honest rendering
+        of it is silence.
+        """
+        bb = tmp_path / "bb"
+        bb.mkdir()
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", str(bb))
+        app = create_app(manager=MockManager())
+        app.config["TESTING"] = True
+        html = app.test_client().get("/downloads/bb").data.decode()
+
+        assert "v0.1.0-beta.5" in html
+        assert "BloodborneAPLauncher-win-x64.zip" in html
+        assert "Development build" not in html
+        assert "No development bundle has completed successfully yet" not in html
+        assert "There is no rolling development build for" in html
+
+        # ...and the game that DOES have one keeps it.
+        assert "Development build" in app.test_client().get("/downloads/er").data.decode()
+
+    def test_the_combined_page_carries_both_games(self, bb_stub, tmp_path, monkeypatch):
+        bb = tmp_path / "bb"
+        bb.mkdir()
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", str(bb))
+        html = create_app(manager=MockManager()).test_client().get("/downloads").data.decode()
+        assert 'data-testid="downloads-er"' in html
+        assert 'data-testid="downloads-bb"' in html
+        # No Nexus row for a game that has no Nexus page.
+        assert "nexusmods.com/bloodborne" not in html
+
+    def test_an_undeployed_second_game_is_not_fetched_or_rendered(self, monkeypatch):
+        """Until rollout step 3 there is no BB_STATIC_DIR, and /downloads must not grow two
+        four-second GitHub calls in its request path for a section it will not render."""
+        asked = []
+
+        def _raw(repo, timeout):
+            asked.append(repo)
+            return COMPLETE
+        monkeypatch.setattr(releases, "_fetch_raw", _raw)
+        monkeypatch.setattr(app_module, "BB_STATIC_DIR", "")
+        html = create_app(manager=MockManager()).test_client().get("/downloads").data.decode()
+        assert 'data-testid="downloads-bb"' not in html
+        assert not any("bb-archipelago" in r for r in asked)
+
+
+class TestPerGameReleaseCache:
+    """One cache keyed by (game, channel). Two single-slot globals would have crossed the games.
+
+    🛑 THE FAILURE THIS PREVENTS IS NOT "a stale version number". It is serving one game's release
+    under the other game's heading -- the same class of defect as the mismatched apworld/client
+    pair this whole module exists to prevent, one level up.
+    """
+
+    def test_er_failure_returns_er_stale_not_bb(self, bb_stub, monkeypatch):
+        assert releases.get_releases(games.ER).tag == "v0.3.10"
+        assert releases.get_releases(games.BB).tag == "v0.1.0-beta.5"
+
+        def boom(repo, timeout):
+            if "bb-archipelago" in repo:
+                return BB_RELEASES
+            raise urllib.error.URLError("er github is down")
+        monkeypatch.setattr(releases, "_fetch_raw", boom)
+
+        er = releases.get_releases(games.ER, ttl=0)
+        assert er.ok and er.tag == "v0.3.10", "an ER outage must serve ER's own stale answer"
+        assert releases.get_releases(games.BB, ttl=0).tag == "v0.1.0-beta.5"
+
+    def test_a_cold_er_cache_does_not_borrow_bbs_answer(self, bb_stub, monkeypatch):
+        assert releases.get_releases(games.BB).tag == "v0.1.0-beta.5"
+
+        def boom(repo, timeout):
+            raise urllib.error.URLError("down")
+        monkeypatch.setattr(releases, "_fetch_raw", boom)
+        assert releases.get_releases(games.ER).ok is False
+
+    def test_reset_cache_clears_every_game(self, bb_stub):
+        releases.get_releases(games.ER)
+        releases.get_releases(games.BB)
+        releases.reset_cache()
+        assert releases._cache == {}

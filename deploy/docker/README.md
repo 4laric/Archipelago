@@ -146,7 +146,33 @@ GENERATE_MAX_AS_MB=2048
 # value ends up as the value, and generation then dies with
 # KeyError: '# empty = plando off is not a recognized name for a plando module'.
 GENERATE_PLANDO=
+
+BB_REF=                    # Bloodborne — BLANK IS A SUPPORTED STATE, see below
+BB_HOST_STATIC_DIR=/srv/bb
 ```
+
+## A second game: Bloodborne
+
+`/bb/` is the same arrangement as `/er/`, one row over in `webgui/games.py`: `BB_REF` pins the
+apworld and the fallback pages baked into the image, `BB_HOST_STATIC_DIR` is the host directory
+bb-archipelago's `tools/deploy_site.sh` writes and compose mounts read-only at `/bb-static`.
+
+**`BB_REF` is optional and blank is a supported state.** Blank means Bloodborne is not deployed
+here: `/bb/` 404s, the game switcher in the header does not appear at all, and neither
+`/downloads` nor `/hosting` mentions the game. Nothing about `/` or `/er/` changes either way —
+that isolation is what `TestGameTable` in `webgui/test_app.py` exists to pin. Set it to an
+immutable tag (`v0.1.0-beta.5`) or a full SHA and the `bbtools` stage clones, installs the world
+with `tools/install_apworld.py --ap-dir`, and copies `site/` into the image.
+
+Bloodborne's releases are all GitHub **prereleases**. `release/CHANNELS.tsv` in bb-archipelago is
+what promotes one to `stable`, and `/downloads` follows the ledger rather than the prerelease
+flag; see the note on `_resolve` in `webgui/releases.py`.
+
+> ⚠️ **The `/generate` rate limit is ONE bucket shared by both games.** The Caddy limiter is keyed
+> by client IP, not by game, and the published port range still caps rooms that *exist* at 200
+> (see `docker-compose.yml`). A second game roughly doubles the room-creation rate against that
+> same budget without widening it. No change is made here — but if `_pick_free_port` starts
+> refusing, that is the reason, and deleting finished rooms is the first move.
 
 ### 🛑 Before you expose /generate publicly
 

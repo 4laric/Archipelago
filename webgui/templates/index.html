@@ -14,18 +14,21 @@
   Players connect via a bare <code>ws://host:PORT</code> — not a URL path.
 </p>
 
-{% if er_tooling %}
-<!-- ===== Elden Ring: the wizard, for people who have not generated a seed before ===== -->
-<div class="card" style="margin-bottom:1.5rem;">
-  <h2 style="margin-bottom:0.5rem;">New to this? Build an Elden Ring seed</h2>
+{#  ===== One card per deployed game: the wizard, for people who have not generated a seed
+    before. A LOOP, NOT A COPY -- a second game arriving must not become a second block of prose
+    to keep in sync with the first. A game with no static tree on this box is absent here, not
+    empty, which is the same rule the tab strip follows. ===== #}
+{% for g in games %}
+<div class="card" style="margin-bottom:1.5rem;" data-testid="build-{{ g.key }}">
+  <h2 style="margin-bottom:0.5rem;">New to this? Build a {{ g.name }} seed</h2>
   <p style="font-size:0.9rem; margin-bottom:0.75rem;">
     Pick your options in the wizard — it shows how many checks your seed will have and what is in
     them before you commit{% if can_generate %}, then generates it and starts the room here{% endif %}.
     No Python, no Archipelago install.
   </p>
-  <a class="btn" href="/er/">Open the options wizard</a>
+  <a class="btn" href="{{ g.builder_url }}">Open the {{ g.name }} options wizard</a>
 </div>
-{% endif %}
+{% endfor %}
 
 {% if contact_discord %}
 <div class="card" data-testid="hosting-support"
@@ -39,20 +42,21 @@
   </div>
   <button class="btn btn-neutral" type="button"
           onclick="copyText('{{ contact_discord }}', this)">Copy Discord handle</button>
-  {% if er_tooling %}
-  <a class="btn btn-neutral" href="/er/report.html">Report an Elden Ring bug</a>
-  {% endif %}
+  {% for g in games %}
+  <a class="btn btn-neutral" href="{{ g.root }}report.html">Report a {{ g.name }} bug</a>
+  {% endfor %}
 </div>
 {% endif %}
 
-<!-- ===== Downloads teaser. Unconditional: a box with no ER tooling deployed still hosts rooms
-     for people who need the mod, and the mod lives on GitHub either way. ===== -->
+<!-- ===== Downloads teaser. Unconditional: a box with no game tooling deployed still hosts rooms
+     for people who need the mod, and the mods live on GitHub either way. Deliberately NOT looped
+     over `games` -- /downloads is one shared page and this is one link to it. ===== -->
 <div class="card" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
   <div style="flex:1; min-width:16rem;">
-    <h3 style="margin-bottom:0.25rem;">Need the Elden Ring mod itself?</h3>
+    <h3 style="margin-bottom:0.25rem;">Need the mod itself?</h3>
     <p style="font-size:0.85rem;">
-      The player bundle (apworld + client DLL + docs) and the bare apworld for hosts, plus the
-      GitHub and Nexus pages. Take both halves from the same release.
+      The player bundle and the bare apworld for hosts, for every game this site builds seeds for,
+      plus the GitHub and mod pages. Take both halves from the same release.
     </p>
   </div>
   <a class="btn btn-neutral" href="/downloads">Downloads</a>

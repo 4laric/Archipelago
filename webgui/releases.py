@@ -43,26 +43,23 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Optional
 
+from webgui import games
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-#: `owner/repo` the release assets come from. The world repo, not this one -- peliarch hosts rooms,
-#: er-archipelago publishes the game.
-DOWNLOADS_REPO = os.environ.get("DOWNLOADS_REPO", "4laric/er-archipelago")
-
-#: Human-readable channel ledger. The website labels the two release streams, but the ledger is
-#: where their meaning is maintained and audited.
-CHANNELS_URL = os.environ.get(
-    "DOWNLOADS_CHANNELS_URL",
-    f"https://github.com/{DOWNLOADS_REPO}/blob/main/release/CHANNELS.tsv",
-)
-CHANNELS_RAW_URL = os.environ.get(
-    "DOWNLOADS_CHANNELS_RAW_URL",
-    f"https://raw.githubusercontent.com/{DOWNLOADS_REPO}/main/release/CHANNELS.tsv",
-)
+#: 🛑 THESE FIVE ARE ELDEN RING'S ROW, RE-EXPORTED, NOT THE SITE'S CONFIGURATION ANY MORE.
+#: They used to BE the configuration: one repo, one ledger, one Nexus page, one asset pair. With a
+#: second game they moved to `webgui/games.py`, where every game has its own. They stay here under
+#: their old names because `.env.example`, the deploy README and the existing tests all speak them.
+DOWNLOADS_REPO   = games.ER.downloads_repo
+CHANNELS_URL     = games.ER.channels_url
+CHANNELS_RAW_URL = games.ER.channels_raw_url
+NEXUS_URL        = games.ER.nexus_url
+GAME_GITHUB_URL  = games.ER.github_url
 
 #: Seconds a fetched release is reused. The measured tag cadence on er-archipelago is a 0.82-day
 #: MEDIAN GAP, so anything under an hour is already far finer than the thing it tracks; 15 minutes
@@ -78,25 +75,13 @@ DOWNLOADS_TIMEOUT_SECONDS = float(os.environ.get("DOWNLOADS_TIMEOUT_SECONDS", "4
 #: not need one -- a public repo's releases are readable without auth.
 DOWNLOADS_GITHUB_TOKEN = os.environ.get("DOWNLOADS_GITHUB_TOKEN", "")
 
-#: Where the project is published outside GitHub. The Nexus page is a LINK-ONLY storefront by
-#: policy (`DISTRIBUTION.md`: "No mirrors"), so it is a destination here, never a download target.
-NEXUS_URL = os.environ.get("NEXUS_URL", "https://www.nexusmods.com/eldenring/mods/10334")
-
-#: The world repo's human-facing home. Distinct from CONTACT_GITHUB in app.py, which points at
-#: peliarch's own source -- a visitor looking for the game and a visitor looking for the host are
-#: two different people and they are not owed the same link.
-GAME_GITHUB_URL = os.environ.get("GAME_GITHUB_URL", "https://github.com/4laric/er-archipelago")
-
 #: How many releases back to look when answering "where was this asset last published". Only used
 #: for the honest-gap note; it never promotes an older tag into a download button on its own.
 _HISTORY_DEPTH = 10
 
-#: The two published assets, in the order `DISTRIBUTION.md` lists them.
-#: `match` is a predicate on the asset filename because the bundle carries its version in its name.
-_WANTED = (
-    ("bundle", lambda n: n.startswith("ER-Archipelago-") and n.endswith(".zip")),
-    ("apworld", lambda n: n in ("eldenring.apworld", "eldenring-dev.apworld")),
-)
+#: Elden Ring's asset matchers, re-exported from its row for the same reason as the block above.
+#: `_resolve` takes the matchers as an argument now; nothing in this module reads this constant.
+_WANTED = games.ER.wanted
 
 
 # ---------------------------------------------------------------------------
@@ -156,8 +141,17 @@ class Releases:
 # ---------------------------------------------------------------------------
 
 _lock = threading.Lock()
-_cache: dict = {"at": 0.0, "value": None}
-_dev_cache: dict = {"at": 0.0, "value": None}
+
+#: ONE dict keyed by `(game_key, channel)`, not two globals. With two games the old pair of
+#: single-slot caches would have made every game's answer the previous caller's answer: a
+#: Bloodborne fetch would evict Elden Ring's, and worse, an ER outage would have served the cached
+#: BB release under an ER heading. `TestPerGameReleaseCache` pins that they cannot cross.
+#: Each value is `{"at": float, "value": Releases|None}`.
+_cache: dict = {}
+
+
+def _slot(game_key: str, channel: str) -> dict:
+    return _cache.setdefault((game_key, channel), {"at": 0.0, "value": None})
 
 
 def _api_url(repo: str) -> str:
@@ -176,8 +170,9 @@ def _fetch_raw(repo: str, timeout: float) -> list:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _fetch_channels(timeout: float) -> str:
-    req = urllib.request.Request(CHANNELS_RAW_URL, headers={"User-Agent": "peliarch-downloads"})
+def _fetch_channels(timeout: float, url: str = None) -> str:
+    req = urllib.request.Request(url or CHANNELS_RAW_URL,
+                                 headers={"User-Agent": "peliarch-downloads"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8")
 
@@ -194,34 +189,52 @@ def _current_channels(text: str) -> dict[str, str]:
     return current
 
 
-def _resolve(payload: list, stable_tag: str = None) -> Releases:
+def _resolve(payload: list, stable_tag: str = None, wanted=None) -> Releases:
     """Turn the API payload into one release plus what it carries.
 
-    THE RESOLVED RELEASE IS THE NEWEST NON-DRAFT, NON-PRERELEASE ONE -- chosen once, for all assets.
-    Per-asset resolution is the tempting alternative and it is the bug: it would happily hand a
-    v0.3.11 bundle and a v0.3.10 apworld to the same visitor under one heading.
+    THE RESOLVED RELEASE IS THE ONE THE LEDGER POINTS AT -- chosen once, for all assets. Per-asset
+    resolution is the tempting alternative and it is the bug: it would happily hand a v0.3.11
+    bundle and a v0.3.10 apworld to the same visitor under one heading.
+
+    THE PRERELEASE FLAG IS NOT THE POINTER; THE LEDGER IS. This used to drop every prerelease
+    before looking for the ledger's tag, and that was fine while the only game published stable
+    tags. Bloodborne publishes `v0.1.0-beta.N` and marks all of them prerelease, so the old filter
+    resolved NOTHING for it -- a downloads section that could never render a build that exists. A
+    tag NAMED by `release/CHANNELS.tsv` is accepted whatever GitHub's checkbox says; promotion is
+    a reviewed commit to an append-only file, which is a stronger claim than the flag. Drafts stay
+    excluded: a draft is not published at all and its assets are not fetchable.
+
+    Elden Ring is unaffected, because its `stable` rows have never named a prerelease -- and the
+    asset-history walk below only looks at releases with the SAME prerelease flag as the selected
+    one, so an ER `-rc1` still cannot become the "last seen" tag on an ER gap note.
     """
     if not isinstance(payload, list):
         return Releases(ok=False)
 
-    published = [
-        r for r in payload
-        if isinstance(r, dict) and not r.get("draft") and not r.get("prerelease")
-    ]
-    if not published:
-        return Releases(ok=False)
-
+    wanted = games.ER.wanted if wanted is None else wanted
+    non_draft = [r for r in payload if isinstance(r, dict) and not r.get("draft")]
     # The API returns newest-first by creation, but sorting on published_at makes that an assertion
     # rather than a hope -- a re-published tag reorders the former and not the latter.
-    published.sort(key=lambda r: r.get("published_at") or "", reverse=True)
+    non_draft.sort(key=lambda r: r.get("published_at") or "", reverse=True)
+
     if stable_tag:
-        selected = next((r for r in published if r.get("tag_name") == stable_tag), None)
+        selected = next((r for r in non_draft if r.get("tag_name") == stable_tag), None)
         if selected is None:
             return Releases(ok=False)
         # A promoted stable release may trail newer version tags. Asset history must look backward
         # from stable, never forward into an unpromoted build.
-        published = [selected] + [r for r in published if (r.get("published_at") or "")
-                                  < (selected.get("published_at") or "")]
+        flag = bool(selected.get("prerelease"))
+        published = [selected] + [
+            r for r in non_draft
+            if bool(r.get("prerelease")) == flag
+            and (r.get("published_at") or "") < (selected.get("published_at") or "")
+        ]
+    else:
+        # No pointer to follow: fall back to the newest full release. A prerelease nobody promoted
+        # cannot stand in for one.
+        published = [r for r in non_draft if not r.get("prerelease")]
+        if not published:
+            return Releases(ok=False)
     newest = published[0]
 
     def _named(release, match):
@@ -232,7 +245,7 @@ def _resolve(payload: list, stable_tag: str = None) -> Releases:
         return None
 
     assets = {}
-    for kind, match in _WANTED:
+    for kind, match in wanted:
         hit = _named(newest, match)
         if hit:
             assets[kind] = Asset(
@@ -263,7 +276,7 @@ def _resolve(payload: list, stable_tag: str = None) -> Releases:
     )
 
 
-def _resolve_dev(payload: list) -> Releases:
+def _resolve_dev(payload: list, wanted=None) -> Releases:
     """Resolve only the moving `dev` prerelease; never mistake another prerelease for the channel."""
     if not isinstance(payload, list):
         return Releases(ok=False)
@@ -271,13 +284,14 @@ def _resolve_dev(payload: list) -> Releases:
                   and r.get("prerelease") and r.get("tag_name") == "dev"]
     if not candidates:
         return Releases(ok=False)
-    return _resolve_one(candidates[0])
+    return _resolve_one(candidates[0], wanted)
 
 
-def _resolve_one(release: dict) -> Releases:
+def _resolve_one(release: dict, wanted=None) -> Releases:
     """One already-selected release, with no cross-release asset fallback."""
+    wanted = games.ER.wanted if wanted is None else wanted
     assets = {}
-    for kind, match in _WANTED:
+    for kind, match in wanted:
         hit = next((a for a in release.get("assets") or [] if match(a.get("name") or "")), None)
         assets[kind] = Asset(
             kind=kind,
@@ -294,77 +308,97 @@ def _resolve_one(release: dict) -> Releases:
     )
 
 
-def get_releases(repo: str = None, ttl: int = None, timeout: float = None,
+def _game(game):
+    """Accept a Game, a game key, or None (Elden Ring -- every caller that predates the table)."""
+    if game is None:
+        return games.GAMES[games.DEFAULT_GAME]
+    if isinstance(game, str):
+        return games.GAMES[game]
+    return game
+
+
+def get_releases(game=None, repo: str = None, ttl: int = None, timeout: float = None,
                  force: bool = False) -> Releases:
-    """Resolved release for the downloads page. Never raises.
+    """Resolved stable release for one game. Never raises.
 
     A stale cached value beats a failed fetch: if GitHub is down and we already have an answer, the
     page keeps working with a slightly old version number, which is a far better failure than the
-    bare fallback. Only a cold cache plus a failed fetch degrades.
+    bare fallback. Only a cold cache plus a failed fetch degrades -- and the cache is keyed by
+    game, so "we already have an answer" can never quietly mean "for the other game".
     """
-    repo = repo or DOWNLOADS_REPO
+    game = _game(game)
+    repo = repo or game.downloads_repo
     ttl = DOWNLOADS_TTL_SECONDS if ttl is None else ttl
     timeout = DOWNLOADS_TIMEOUT_SECONDS if timeout is None else timeout
 
     with _lock:
-        cached = _cache["value"]
-        fresh = cached is not None and (time.time() - _cache["at"]) < ttl
+        slot = _slot(game.key, "stable")
+        cached = slot["value"]
+        fresh = cached is not None and (time.time() - slot["at"]) < ttl
         if fresh and not force:
             return cached
 
     try:
-        channels = _current_channels(_fetch_channels(timeout))
+        channels = _current_channels(_fetch_channels(timeout, game.channels_raw_url))
         stable_tag = channels.get("stable")
         if not stable_tag:
             raise ValueError("channel ledger has no stable pointer")
-        resolved = _resolve(_fetch_raw(repo, timeout), stable_tag=stable_tag)
+        resolved = _resolve(_fetch_raw(repo, timeout), stable_tag=stable_tag, wanted=game.wanted)
     except (urllib.error.URLError, urllib.error.HTTPError, OSError,
             ValueError, TypeError, KeyError) as exc:
-        logger.warning("downloads: release fetch failed (%s: %s)", type(exc).__name__, exc)
+        logger.warning("downloads: %s release fetch failed (%s: %s)",
+                       game.key, type(exc).__name__, exc)
         with _lock:
             # Serve the stale answer if we have one; only a cold cache degrades.
-            return _cache["value"] or Releases(ok=False)
+            return _slot(game.key, "stable")["value"] or Releases(ok=False)
 
     if not resolved.ok:
         with _lock:
-            return _cache["value"] or resolved
+            return _slot(game.key, "stable")["value"] or resolved
 
     with _lock:
-        _cache["at"] = time.time()
-        _cache["value"] = resolved
+        slot = _slot(game.key, "stable")
+        slot["at"] = time.time()
+        slot["value"] = resolved
     return resolved
 
 
-def get_dev_release(repo: str = None, ttl: int = None, timeout: float = None,
+def get_dev_release(game=None, repo: str = None, ttl: int = None, timeout: float = None,
                     force: bool = False) -> Releases:
-    """The moving development prerelease. Never raises and never falls back to a stable asset."""
-    repo = repo or DOWNLOADS_REPO
+    """The moving development prerelease. Never raises and never falls back to a stable asset.
+
+    A game with no rolling `dev` release (Bloodborne) never reaches here: `app.downloads` passes
+    `dev=None` for it and the template omits the card. An empty "Development build" section is a
+    promise the project has not made.
+    """
+    game = _game(game)
+    repo = repo or game.downloads_repo
     ttl = DOWNLOADS_TTL_SECONDS if ttl is None else ttl
     timeout = DOWNLOADS_TIMEOUT_SECONDS if timeout is None else timeout
     with _lock:
-        cached = _dev_cache["value"]
-        if cached is not None and (time.time() - _dev_cache["at"]) < ttl and not force:
+        slot = _slot(game.key, "dev")
+        cached = slot["value"]
+        if cached is not None and (time.time() - slot["at"]) < ttl and not force:
             return cached
     try:
-        channels = _current_channels(_fetch_channels(timeout))
+        channels = _current_channels(_fetch_channels(timeout, game.channels_raw_url))
         if channels.get("beta") != "main":
             return Releases(ok=False)
-        resolved = _resolve_dev(_fetch_raw(repo, timeout))
+        resolved = _resolve_dev(_fetch_raw(repo, timeout), wanted=game.wanted)
     except (urllib.error.URLError, urllib.error.HTTPError, OSError,
             ValueError, TypeError, KeyError) as exc:
-        logger.warning("downloads: dev release fetch failed (%s: %s)", type(exc).__name__, exc)
+        logger.warning("downloads: %s dev release fetch failed (%s: %s)",
+                       game.key, type(exc).__name__, exc)
         with _lock:
-            return _dev_cache["value"] or Releases(ok=False)
+            return _slot(game.key, "dev")["value"] or Releases(ok=False)
     with _lock:
-        _dev_cache["at"] = time.time()
-        _dev_cache["value"] = resolved
+        slot = _slot(game.key, "dev")
+        slot["at"] = time.time()
+        slot["value"] = resolved
     return resolved
 
 
 def reset_cache() -> None:
-    """Drop the cached release. For tests, and for a future admin poke."""
+    """Drop every cached release, for every game and channel. For tests, and an admin poke."""
     with _lock:
-        _cache["at"] = 0.0
-        _cache["value"] = None
-        _dev_cache["at"] = 0.0
-        _dev_cache["value"] = None
+        _cache.clear()

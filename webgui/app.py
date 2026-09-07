@@ -3,9 +3,16 @@ app.py — Flask web app for Peliarch self-host GUI.
 
 Implements:
   HTML pages:  GET /              the Elden Ring landing page (static, from ER_STATIC_DIR)
+               GET /er/...       Elden Ring static tooling  (ER_STATIC_DIR)
+               GET /bb/...       Bloodborne static tooling  (BB_STATIC_DIR)
                GET /hosting      the rooms dashboard: room list + create form
-               GET /downloads    the published release
+               GET /downloads    the published release of every deployed game
+               GET /downloads/<game>  the same page, deep-linked to one of them
                GET /room/<id>    room page (connect block, status, logs, controls)
+
+  The per-game facts (static dir, downloads repo, channel ledger, asset names, tabs) live in
+  webgui/games.py. This module is the routes and the deployment questions -- "is that game's
+  tooling actually on this box" -- and nothing here should name a game that games.py does not.
 
   JSON API:    POST   /rooms              upload .archipelago → create room
                GET    /rooms              list rooms
@@ -45,6 +52,7 @@ from webgui.orchestrator import (
 )
 from webgui import generator
 from webgui import releases
+from webgui.games import GAMES, DEFAULT_GAME
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +137,83 @@ GENERATE_PLANDO     = os.environ.get("GENERATE_PLANDO", generator.DEFAULT_PLANDO
 # link to the hosted wizard.
 ER_STATIC_DIR = os.environ.get("ER_STATIC_DIR", "")
 
+# The same directory, for Bloodborne, populated by bb-archipelago's tools/deploy_site.sh. Unset
+# until that repo has published a `site/` tree, and UNSET MUST BE HARMLESS: `/bb/` 404s, the
+# switcher does not appear, /downloads and /hosting do not mention the game, and NOTHING about
+# `/er/` or `/` changes. That is the whole safety property of shipping the game table before the
+# game -- see TestGameTable.
+BB_STATIC_DIR = os.environ.get("BB_STATIC_DIR", "")
+
+#: Which module global holds each game's directory. Read through `_static_dir` at REQUEST time,
+#: never captured at import or at create_app: a deploy lands mid-process, and this is the
+#: attribute every test monkeypatches. See the note in webgui/games.py about why the directory is
+#: deliberately not a field on the frozen `Game` row.
+_STATIC_DIR_ATTRS = {g.key: g.static_dir_env for g in GAMES.values()}
+
+
+def _static_dir(game) -> str:
+    return globals().get(_STATIC_DIR_ATTRS.get(game.key, ""), "") or ""
+
+
+class GameView:
+    """One `Game` row plus what this box actually has on disk for it, for one request.
+
+    Templates ask `game.available` and `game.has('questlines.html')` instead of the old
+    `er_tooling` / `questline_dag` context flags, which were the two-game version of the same
+    question written once for one game. Every other attribute delegates to the row.
+    """
+
+    def __init__(self, game):
+        self.game = game
+        self.static_dir = _static_dir(game)
+
+    def __getattr__(self, name):
+        return getattr(self.game, name)
+
+    def __eq__(self, other):
+        return isinstance(other, GameView) and other.game is self.game
+
+    def __hash__(self):
+        return hash(self.game.key)
+
+    @property
+    def available(self) -> bool:
+        return bool(self.static_dir and os.path.isdir(self.static_dir))
+
+    def has(self, filename: str) -> bool:
+        return bool(self.static_dir and os.path.isfile(os.path.join(self.static_dir, filename)))
+
+
+def _current_game_key() -> str:
+    """Which game the page being rendered belongs to, from the route's own `game` argument."""
+    args = getattr(request, "view_args", None) or {}
+    key = args.get("game") or DEFAULT_GAME
+    return key if key in GAMES else DEFAULT_GAME
+
+
+def _views() -> list:
+    return [GameView(g) for g in GAMES.values()]
+
+
+def _deployed_games() -> list:
+    """Games with tooling on this box. Drives the switcher, the tab strip and the hosting cards.
+
+    A game whose static tree was never deployed is not half-present in the chrome: it is absent.
+    A tab that 404s is worse than a tab that is not there, and that rule now scales.
+    """
+    return [v for v in _views() if v.available]
+
+
+def _download_games() -> list:
+    """Games /downloads will try to resolve a release for.
+
+    Not simply `GAMES`: an undeployed game would put two GitHub calls with a 4-second timeout each
+    into the request path of a page that would then render nothing for them. The default game is
+    always attempted, because its DEGRADED card (link the releases index) is the answer when the
+    fetch fails and that must survive an ER box with no ER_STATIC_DIR.
+    """
+    return [v for v in _views() if v.available or v.key == DEFAULT_GAME]
+
 
 # ---------------------------------------------------------------------------
 # App factory (injectable manager for testing)
@@ -155,15 +240,17 @@ def create_app(manager: RoomManager = None) -> Flask:
             "donation_url":    app.config["DONATION_URL"],
             "contact_discord": app.config["CONTACT_DISCORD"],
             "contact_github":  app.config["CONTACT_GITHUB"],
-            # The tab strip lives in base.html and four of its six tabs are served out of
-            # ER_STATIC_DIR, so it has to know whether that directory exists -- a Builder tab
+            # The tab strip lives in base.html and four of its six tabs are served out of a
+            # game's static dir, so it has to know whether that directory exists -- a Builder tab
             # that 404s is worse than no Builder tab. Read at request time, not captured at
             # create_app time, so a test (and a deploy that lands mid-process) sees the truth.
-            "er_tooling": bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
-            # Older ER_REF values legitimately lack the optional questline artifact. Do not
-            # advertise a tab whose target was not copied into this particular deployment.
-            "questline_dag": bool(ER_STATIC_DIR and os.path.isfile(
-                os.path.join(ER_STATIC_DIR, "questlines.html"))),
+            #
+            # `games` are the games deployed on this box: the switcher lists them and the hosting
+            # page loops over them. `game` is the one THIS page belongs to -- a shared page
+            # (/downloads, /hosting, /room/<id>) belongs to DEFAULT_GAME, so an Elden Ring
+            # visitor's strip is exactly what it has always been.
+            "games": _deployed_games(),
+            "game": GameView(GAMES[_current_game_key()]),
         }
 
     if manager is None:
@@ -256,10 +343,15 @@ def create_app(manager: RoomManager = None) -> Flask:
         deciding whether to install a DLL. Hosting sits beside it rather than in front of it,
         which is also why this is `/hosting` and not `/`.
 
-        `can_generate` and `er_tooling` are asked, not assumed: a link to /er/ on a box with no ER
-        tooling deployed is a 404 with extra steps, and "hosting only, upload a seed you generated
-        elsewhere" is the honest copy on a box that cannot generate. The template renders whichever
-        of those two sites this actually is.
+        `can_generate` and the deployed-game list are asked, not assumed: a link to a game root
+        on a box with no tooling for that game is a 404 with extra steps, and "hosting only,
+        upload a seed you generated elsewhere" is the honest copy on a box that cannot generate.
+        The template renders whichever of those sites this actually is, and names every game it
+        really has -- one card each, from `games`.
+
+        🛑 THE ROUTE ITSELF MUST NEVER BECOME GAME-CONDITIONAL. The container healthcheck is
+        `urlopen('/hosting')`, and a non-2xx here restarts the container and kills every running
+        room with it. Deployment state changes the CARDS, never the status code.
         """
         return render_template(
             "index.html",
@@ -268,7 +360,7 @@ def create_app(manager: RoomManager = None) -> Flask:
             public_host=mgr().public_host,
             can_generate=bool(GENERATE_ENABLED and AP_ROOT and os.path.isfile(
                 os.path.join(AP_ROOT, "Generate.py"))),
-            # er_tooling arrives from the context processor -- it is chrome, and this page is not
+            # `games` arrives from the context processor -- it is chrome, and this page is not
             # the only one that needs it.
         )
 
@@ -281,16 +373,42 @@ def create_app(manager: RoomManager = None) -> Flask:
         see `webgui/releases.py` for why a hardcoded version here would be a fourth surface to
         forget to bump.
         """
+        return _downloads_page(None)
+
+    @app.route("/downloads/<game>")
+    def downloads_for(game):
+        """Deep link to one game's section. Same page, filtered -- not a second page.
+
+        A link handed out in a Bloodborne channel should land on Bloodborne, but the pairing rule
+        and the channel ledger are the same argument for every game and must not be maintained
+        twice.
+        """
+        if game not in GAMES:
+            abort(404)
+        return _downloads_page(game)
+
+    def _downloads_page(only: str = None):
+        views = [v for v in _views() if v.key == only] if only else _download_games()
+        entries = []
+        for view in views:
+            rel = releases.get_releases(view.game)
+            # A game whose release did not resolve is not rendered as an empty section on the
+            # combined page -- except the default game, whose degraded card (link the releases
+            # index) IS the answer and is what this page has always shown when GitHub is
+            # unreachable. A deep link asked for one game by name and gets it either way.
+            if not rel.ok and not only and view.key != DEFAULT_GAME:
+                continue
+            entries.append({
+                "game": view,
+                "rel": rel,
+                # Bloodborne publishes no rolling `dev` release. None, not an empty Releases, so
+                # the template omits the card rather than rendering a promise nobody made.
+                "dev": releases.get_dev_release(view.game) if view.has_dev_channel else None,
+            })
         return render_template(
             "downloads.html",
             tab="downloads",
-            rel=releases.get_releases(),
-            dev=releases.get_dev_release(),
-            channels_url=releases.CHANNELS_URL,
-            nexus_url=releases.NEXUS_URL,
-            game_github_url=releases.GAME_GITHUB_URL,
-            releases_index=releases.GAME_GITHUB_URL.rstrip("/") + "/releases",
-            er_tooling=bool(ER_STATIC_DIR and os.path.isdir(ER_STATIC_DIR)),
+            entries=entries,
         )
 
     @app.route("/room/<room_id>")
@@ -318,20 +436,34 @@ def create_app(manager: RoomManager = None) -> Flask:
     # API: rooms collection
     # ------------------------------------------------------------------
 
-    @app.route("/er/")
-    @app.route("/er/<path:filename>")
-    def er_static(filename: str = "wizard.html"):
-        """Serve the Elden Ring wizard / check browser from ER_STATIC_DIR.
+    def game_static(game: str, filename: str = None):
+        """Serve one game's static tree: `/er/...` from ER_STATIC_DIR, `/bb/...` from BB_STATIC_DIR.
 
         `send_from_directory` resolves against the base and refuses to escape it, so `..` in the URL
         is handled by Flask rather than by a hand-rolled check here.
+
+        🛑 THE GAMES ARE INDEPENDENT AND THAT IS THE POINT OF THE TABLE. An unset BB_STATIC_DIR
+        404s `/bb/` and touches nothing else -- it must never be able to take `/er/` or `/` down
+        with it. `TestGameTable` pins that in both directions.
         """
-        if not ER_STATIC_DIR or not os.path.isdir(ER_STATIC_DIR):
-            return jsonify(error="No ER tooling deployed on this host (set ER_STATIC_DIR)"), 404
+        row = GAMES[game]
+        static_dir = _static_dir(row)
+        if not static_dir or not os.path.isdir(static_dir):
+            return jsonify(error=f"No {row.name} tooling deployed on this host "
+                                 f"(set {row.static_dir_env})"), 404
         try:
-            return send_from_directory(ER_STATIC_DIR, filename)
+            return send_from_directory(static_dir, filename or row.default_file)
         except NotFound:
             return jsonify(error=f"No such file: {filename}"), 404
+
+    # One rule pair per game rather than a `/<game>/` wildcard: the URL space stays exactly what
+    # it was plus `/bb/`, and a typo'd root cannot be swallowed by a catch-all that then answers
+    # with a JSON 404 where the site used to answer with an HTML one.
+    for _row in GAMES.values():
+        app.add_url_rule(f"/{_row.key}/", f"{_row.key}_static", game_static,
+                         defaults={"game": _row.key, "filename": None})
+        app.add_url_rule(f"/{_row.key}/<path:filename>", f"{_row.key}_static_file", game_static,
+                         defaults={"game": _row.key})
 
     # ------------------------------------------------------------------
     # Room creation and seed generation. RETIRED AT v0.4.0, BACK AT v0.4.1 WITH THE DEFECT FIXED.
