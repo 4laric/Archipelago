@@ -311,3 +311,60 @@ class TestDownloadsPage:
         c = client()
         assert 'href="/downloads"' in c.get("/downloads").data.decode()   # header nav
         assert 'href="/downloads"' in c.get("/").data.decode()            # dashboard teaser
+
+
+# ---------------------------------------------------------------------------
+# V.R.M.F fixpack tags. The ledger may promote `stable` to a FOUR-segment tag (`v0.6.0.2`), and
+# the bundle then carries that spelling in its filename. The resolver matches the ledger pointer
+# exactly, so the only thing that can break here is a tag-shaped assumption elsewhere.
+# ---------------------------------------------------------------------------
+
+FIXPACK = [
+    _release("v0.6.0.2", "2026-09-07T09:00:00Z",
+             [_asset("ER-Archipelago-v0.6.0.2.zip", 123900000),
+              _asset("eldenring.apworld", 1400000)]),
+    _release("v0.6.0.1", "2026-09-07T01:00:00Z",
+             [_asset("ER-Archipelago-v0.6.0.1.zip"), _asset("eldenring.apworld")]),
+    _release("v0.6.0", "2026-09-06T00:00:00Z",
+             [_asset("ER-Archipelago-v0.6.0.zip"), _asset("eldenring.apworld")]),
+    _release("v0.5.7", "2026-09-02T00:00:00Z",
+             [_asset("ER-Archipelago-v0.5.7.zip"), _asset("eldenring.apworld")]),
+]
+
+FIXPACK_CHANNELS = "stable\tv0.6.0\t2026-09-06\nstable\tv0.6.0.2\t2026-09-07\nbeta\tmain\t2026-09-07\n"
+
+
+class TestFixpackTags:
+
+    def test_stable_resolves_a_four_segment_tag(self, stub, monkeypatch):
+        stub(FIXPACK)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: FIXPACK_CHANNELS)
+        rel = releases.get_releases()
+        assert rel.ok and rel.tag == "v0.6.0.2"
+        assert rel.asset("bundle").filename == "ER-Archipelago-v0.6.0.2.zip"
+        assert rel.asset("apworld").available
+
+    def test_a_fixpack_line_orders_after_its_base_release(self, stub, monkeypatch):
+        """v0.6.0.2 > v0.6.0.1 > v0.6.0 > v0.5.7. Resolution is by published_at, so a lexical
+        comparison of the tags never happens -- pin that, because '0.6.0.2' < '0.6.0' is false
+        lexically but 'v0.6.0.10' < 'v0.6.0.2' is true, and a sort on the string would be wrong."""
+        stub(list(reversed(FIXPACK)))
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: FIXPACK_CHANNELS)
+        assert releases.get_releases().tag == "v0.6.0.2"
+
+        def key(tag):
+            return tuple(int(part) for part in tag.lstrip("v").split("."))
+
+        ordered = sorted(["v0.6.0", "v0.5.7", "v0.6.0.10", "v0.6.0.2"], key=key)
+        assert ordered == ["v0.5.7", "v0.6.0", "v0.6.0.2", "v0.6.0.10"]
+
+    def test_older_base_release_is_still_a_labelled_fallback(self, stub, monkeypatch):
+        """A fixpack that shipped only the bundle still names where the apworld last was."""
+        no_apworld = [_release("v0.6.0.2", "2026-09-07T09:00:00Z",
+                               [_asset("ER-Archipelago-v0.6.0.2.zip")])] + FIXPACK[1:]
+        stub(no_apworld)
+        monkeypatch.setattr(releases, "_fetch_channels", lambda timeout: FIXPACK_CHANNELS)
+        rel = releases.get_releases()
+        assert rel.tag == "v0.6.0.2"
+        assert not rel.asset("apworld").available
+        assert rel.asset("apworld").last_seen_tag == "v0.6.0.1"

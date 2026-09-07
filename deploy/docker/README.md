@@ -97,8 +97,8 @@ here and only one of them is reproducible:
 So `ER_REF` in `.env` is the room-generation reproducibility boundary. It pins the installed
 apworld. Static pages are promoted separately from the host directory described below.
 
-`ER_REF` is required and the build rejects moving branch names. Use a `vX.Y.Z` release tag or a full
-40-character commit SHA. This is enforced because `ER_REF=main` once rebuilt the public stable page
+`ER_REF` is required and the build rejects moving branch names. Use a `vV.R.M` or `vV.R.M.F` release tag
+(`v0.6.0`, `v0.6.0.2` -- the fourth segment is a fixpack) or a full 40-character commit SHA. This is enforced because `ER_REF=main` once rebuilt the public stable page
 from development while `/downloads` remained on v0.4.6: both pages worked, and together they lied.
 The resolved commit is baked into the image at `/app/.er-rev`, so a running container can always
 answer *which* ER build it is:
@@ -138,7 +138,7 @@ time. One installer, one definition, no drift.
 ### What to set
 
 ```ini
-ER_REF=v0.4.6              # immutable tag or full 40-character commit SHA; never main
+ER_REF=v0.6.0.2            # immutable tag or full 40-character commit SHA; never main
 GENERATE_ENABLED=1
 GENERATE_TIMEOUT=180
 GENERATE_MAX_AS_MB=2048
