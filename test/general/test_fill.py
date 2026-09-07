@@ -2,11 +2,12 @@ from typing import List, Iterable
 import unittest
 
 from Options import Accessibility
-from test.general import generate_items, generate_locations, generate_test_multiworld
+from test.general import TestWorld, generate_items, generate_locations, generate_test_multiworld
 from Fill import FillError, balance_multiworld_progression, fill_restrictive, \
     distribute_early_items, distribute_items_restrictive
 from BaseClasses import Entrance, LocationProgressType, MultiWorld, Region, Item, Location, \
     ItemClassification
+from worlds.AutoWorld import call_all
 from worlds.generic.Rules import CollectionRule, add_item_rule, locality_rules, set_rule
 
 
@@ -880,3 +881,108 @@ class TestBalanceMultiworldProgression(unittest.TestCase):
 
         self.assertRegionContains(
             self.player1.regions[2], self.player2.prog_items[0])
+
+
+class ForeignPlacementWorld(TestWorld):
+    """A world that places its own items onto every world's locations, spread evenly over them."""
+    reserved_items: List[Item] = []
+
+    @classmethod
+    def place_reserved_items(cls, multiworld: MultiWorld, fill_locations: List[Location] = None) -> None:
+        locations = [location for location in sorted(multiworld.get_unfilled_locations())
+                     if not location.locked and location.progress_type is not LocationProgressType.EXCLUDED]
+        for player in multiworld.player_ids:
+            world = multiworld.worlds[player]
+            if not isinstance(world, cls):
+                continue
+            stride = len(locations) // len(world.reserved_items)
+            for index, item in enumerate(world.reserved_items):
+                location = locations[index * stride]
+                location.place_locked_item(item)
+                if fill_locations is not None and location in fill_locations:
+                    fill_locations.remove(location)
+
+
+class ForeignPreFillWorld(ForeignPlacementWorld):
+    """Places onto other worlds' locations from a pre-fill stage hook, before those worlds have pre-filled."""
+
+    @classmethod
+    def stage_pre_fill(cls, multiworld: MultiWorld) -> None:
+        cls.place_reserved_items(multiworld)
+
+
+class ForeignFillHookWorld(ForeignPlacementWorld):
+    """Places onto other worlds' locations from the fill hook, after every world has pre-filled."""
+
+    @classmethod
+    def stage_fill_hook(cls, multiworld: MultiWorld, progitempool: List[Item], usefulitempool: List[Item],
+                        filleritempool: List[Item], fill_locations: List[Location]) -> None:
+        cls.place_reserved_items(multiworld, fill_locations)
+
+
+class OwnPreFillWorld(TestWorld):
+    """A world that pre-fills its own dungeon, and has nowhere else to put those items."""
+    dungeon_region: Region
+    dungeon_items: List[Item] = []
+
+    def get_pre_fill_items(self) -> List[Item]:
+        return self.dungeon_items
+
+    @classmethod
+    def stage_pre_fill(cls, multiworld: MultiWorld) -> None:
+        for player in multiworld.player_ids:
+            world = multiworld.worlds[player]
+            if not isinstance(world, cls):
+                continue
+            locations = [location for location in world.dungeon_region.locations if not location.item]
+            fill_restrictive(multiworld, multiworld.state, locations, list(world.dungeon_items), lock=True,
+                             allow_partial=True)
+            unplaced = [item for item in world.dungeon_items if item.location is None]
+            if unplaced:
+                raise FillError(f"No more spots to place {len(unplaced)} items in {world.dungeon_region.name}")
+
+
+class TestForeignPlacement(unittest.TestCase):
+    """Placing onto another world's locations from a pre-fill stage hook can starve that world's own pre-fill,
+    because stage hooks run in class name order. The fill hook runs after every pre-fill and does not."""
+
+    def setup_multiworld(self, foreign_world: type) -> MultiWorld:
+        multiworld = generate_test_multiworld(2)
+        foreign = self.use_world(multiworld, 1, foreign_world)
+        dungeon = self.use_world(multiworld, 2, OwnPreFillWorld)
+        self.assertLess(foreign_world.__name__, OwnPreFillWorld.__name__,
+                        "the foreign placer has to sort first for this scenario to happen")
+
+        generate_player_data(multiworld, 1, 20, prog_item_count=4, basic_item_count=7)
+        player2 = generate_player_data(multiworld, 2, basic_item_count=1)
+        foreign.reserved_items = generate_items(10, 1, True)
+        dungeon.dungeon_region = player2.generate_region(player2.menu, 10)
+        dungeon.dungeon_items = generate_items(8, 2, True)
+
+        return multiworld
+
+    @staticmethod
+    def use_world(multiworld: MultiWorld, player_id: int, world_type: type):
+        """Replaces a player's world with one of a different class, keeping its options."""
+        world = world_type(multiworld, player_id)
+        world.options = multiworld.worlds[player_id].options
+        multiworld.worlds[player_id] = world
+        return world
+
+    def test_foreign_placement_in_pre_fill_can_starve_another_pre_fill(self):
+        """Test that placing onto another world's locations in pre_fill can leave it no room for its own pre-fill"""
+        multiworld = self.setup_multiworld(ForeignPreFillWorld)
+
+        self.assertRaises(FillError, call_all, multiworld, "pre_fill")
+
+    def test_foreign_placement_in_fill_hook_does_not(self):
+        """Test that the same placement made in the fill hook runs after every pre-fill, and so does not"""
+        multiworld = self.setup_multiworld(ForeignFillHookWorld)
+
+        call_all(multiworld, "pre_fill")
+        distribute_items_restrictive(multiworld)
+
+        for item in multiworld.worlds[2].dungeon_items:
+            self.assertIn(item.location, multiworld.worlds[2].dungeon_region.locations)
+        for item in multiworld.worlds[1].reserved_items:
+            self.assertIsNotNone(item.location)
