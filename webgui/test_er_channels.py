@@ -40,3 +40,72 @@ def test_download_pointer_drift_fails():
     bad = b'/releases/download/v0.4.5/ER-Archipelago-v0.4.5.zip'
     errors = channels.verify(fixture(downloads=bad), "https://example.test")
     assert any("downloads points at v0.4.5" in error for error in errors)
+
+
+# ---------------------------------------------------------------------------
+# V.R.M.F. A release tag may carry a fourth "fixpack" segment (er-archipelago tools/vrmf.py):
+# v0.6.0 is the first release on a line and v0.6.0.1, v0.6.0.2 the fixpacks after it. Both
+# spellings are immutable tags, so both must pass every place a tag is parsed -- and the wizard's
+# embedded apworld_version carries the fourth segment too (it is the tag minus the leading `v`).
+# ---------------------------------------------------------------------------
+
+FIX_LEDGER = (b"stable\tv0.6.0\t2026-09-06\trelease\n"
+              b"stable\tv0.6.0.2\t2026-09-07\tsecond fixpack on the 0.6.0 line\n"
+              b"beta\tmain\t2026-09-07\tdevelopment\n")
+FIX_STABLE = b'<script>{"apworld_version": "0.6.0.2"}</script>'
+FIX_DOWNLOADS = b'/releases/download/v0.6.0.2/ER-Archipelago-v0.6.0.2.zip'
+
+
+def fixpack_fixture(live_stable=FIX_STABLE, downloads=FIX_DOWNLOADS):
+    values = {
+        "https://raw.githubusercontent.com/4laric/er-archipelago/main/release/CHANNELS.tsv":
+            FIX_LEDGER,
+        "https://raw.githubusercontent.com/4laric/er-archipelago/v0.6.0.2/wizard/wizard.html":
+            FIX_STABLE,
+        "https://raw.githubusercontent.com/4laric/er-archipelago/main/wizard/wizard.html": BETA,
+        "https://example.test/er/wizard.html": live_stable,
+        "https://example.test/er/beta/wizard.html": BETA,
+        "https://example.test/downloads": downloads,
+    }
+    return values.__getitem__
+
+
+def test_three_segment_tag_is_still_an_immutable_release():
+    assert channels.stable_ref(LEDGER) == "v0.4.6"
+
+
+def test_four_segment_fixpack_tag_is_an_immutable_release():
+    assert channels.stable_ref(FIX_LEDGER) == "v0.6.0.2"
+
+
+def test_non_release_stable_refs_are_still_rejected():
+    for bad in (b"stable\tmain\t2026-09-07\tno\n",
+                b"stable\tv0.6\t2026-09-07\tno\n",
+                b"stable\tv0.6.0.2.1\t2026-09-07\tno\n",
+                b"stable\tv0.6.0.2-rc1\t2026-09-07\tno\n"):
+        try:
+            channels.stable_ref(bad)
+        except ValueError:
+            continue
+        raise AssertionError("accepted a non-release stable ref: %r" % (bad,))
+
+
+def test_download_ref_reads_a_fixpack_bundle():
+    assert channels.download_ref(FIX_DOWNLOADS) == "v0.6.0.2"
+
+
+def test_fixpack_channels_agree():
+    assert channels.verify(fixpack_fixture(), "https://example.test") == []
+
+
+def test_fixpack_wizard_version_drift_fails():
+    """The wizard must embed the tag minus `v`, fourth segment included."""
+    stale = b'<script>{"apworld_version": "0.6.0"}</script>'
+    errors = channels.verify(fixpack_fixture(live_stable=stale), "https://example.test")
+    assert any("embeds 0.6.0, channel ledger says v0.6.0.2" in error for error in errors)
+
+
+def test_fixpack_download_pointer_drift_fails():
+    bad = b'/releases/download/v0.6.0.1/ER-Archipelago-v0.6.0.1.zip'
+    errors = channels.verify(fixpack_fixture(downloads=bad), "https://example.test")
+    assert any("downloads points at v0.6.0.1" in error for error in errors)

@@ -10,6 +10,11 @@ import urllib.request
 
 DEFAULT_REPO = "4laric/er-archipelago"
 
+#: Release tags are V.R.M.F: three numeric segments plus an OPTIONAL fourth "fixpack" segment
+#: (er-archipelago `tools/vrmf.py`). `v0.6.0` is the first release on a line and `v0.6.0.1`,
+#: `v0.6.0.2` the fixpacks after it. Both spellings are immutable tags; anything else is not.
+TAG_PATTERN = r"v\d+\.\d+\.\d+(?:\.\d+)?"
+
 
 def fetch(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": "peliarch-er-channel-ci"})
@@ -25,7 +30,7 @@ def stable_ref(channels: bytes) -> str:
         fields = raw.split("\t")
         if len(fields) >= 2 and fields[0] == "stable":
             found = fields[1]
-    if not re.fullmatch(r"v\d+\.\d+\.\d+", found):
+    if not re.fullmatch(TAG_PATTERN, found):
         raise ValueError(f"stable channel is not an immutable release tag: {found!r}")
     return found
 
@@ -38,7 +43,7 @@ def wizard_version(page: bytes) -> str:
 
 
 def download_ref(page: bytes) -> str:
-    match = re.search(rb"/releases/download/(v\d+\.\d+\.\d+)/ER-Archipelago-", page)
+    match = re.search((r"/releases/download/(%s)/ER-Archipelago-" % TAG_PATTERN).encode("ascii"), page)
     if not match:
         raise ValueError("downloads page has no stable bundle release link")
     return match.group(1).decode("ascii")

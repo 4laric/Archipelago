@@ -13,7 +13,7 @@ services:
         ER_REPO: ${ER_REPO:-https://github.com/4laric/er-archipelago.git}
         # Stable generation + static pages must be an immutable release. `main` here promoted the
         # development wizard to /er/ while /downloads still named v0.4.6 (#863).
-        ER_REF: ${ER_REF:?Set ER_REF to an immutable Elden Ring release tag, for example v0.4.6}
+        ER_REF: ${ER_REF:?Set ER_REF to an immutable Elden Ring release tag, for example v0.6.0.2}
     env_file: .env
     environment:
       DATA_DIR: /data
