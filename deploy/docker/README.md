@@ -64,7 +64,10 @@ This is single-node by design — the right shape until one box genuinely isn't 
 (`HOSTING.md §6`). When you outgrow it:
 
 - **Bigger box first.** Resize the VPS (more RAM = more concurrent rooms); nothing in the
-  compose changes except widening `PORT_START..PORT_END`.
+  compose changes except widening `PORT_START..PORT_END`. **This has now actually been done** —
+  the 2026-09-08 move to a 16 GB box, with `PORT_START..PORT_END` at `38400..38599` and `ufw`
+  opening the same `38400:38599/tcp`. The procedure is `MIGRATION.md`; the resulting state is
+  `OPERATIONS.md` → "Live deployment".
 - **Then multi-node.** Move `peliarch_data` to object storage / a shared DB, run the
   orchestrator as a scheduler placing rooms across worker nodes, and put the room→node:port
   map behind the ingress. That's where you'd graduate from Compose to Nomad/k8s — but not

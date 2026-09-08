@@ -4,33 +4,56 @@ Written down on launch day. This is the "how it's deployed and how to run it" do
 
 ## Live deployment
 
-- **Site:** https://peliarch.ca (HTTPS, auto-cert via Caddy — cert issued ✅)
-- **Box:** Hetzner **CX23**, Helsinki, Ubuntu 26.04, ~$7/mo, IPv4 + 20 TB transfer —
-  ⚠ **see `deploy/docker/MIGRATION.md` until the cutover completes.** A move to a bigger box is
-  in flight; this line is the *old* box and is not authoritative while that runbook is open.
-- **Room ports:** the range below is stale. `deploy/docker/.env` and `docker-compose.yml` say
-  `38400-38599`, and that is the truth — the allocator walks it and Compose publishes it.
-- **Stack:** Docker Compose at `~/Archipelago/deploy/docker/`
+- **Site:** https://peliarch.ca and https://www.peliarch.ca (HTTPS via Caddy; the current
+  certificate is **ZeroSSL**-issued and valid to **2026-11-27** — see the `ACME_EMAIL` follow-up
+  below for why it is not Let's Encrypt)
+- **Box:** Hetzner, Helsinki, hostname `ubuntu-16gb-hel1-1`, **46.62.130.40** —
+  8 vCPU / 15 GB RAM / 150 GB disk, Ubuntu 26.04. (Hetzner's 16 GB shared-vCPU tier; confirm the
+  exact plan row and its price in the console before quoting a number.)
+- **User and paths:** the stack runs as **`root`**, not `archi`. Repo cloned at
+  **`/root/Archipelago`**; compose lives in `/root/Archipelago/deploy/docker/`.
+- **Docker:** `docker.io` **29.1.3** and `docker-compose-v2` **2.40.3**, both from the Ubuntu
+  packages (not Docker's own apt repo).
+- **Stack:** Docker Compose at `/root/Archipelago/deploy/docker/`
   - `web` container = Flask GUI + per-room MultiServer processes (+ bundled `peliarch` Go binary for Large tier)
   - `caddy` container = TLS termination / reverse proxy for the website
-- **Room ports:** `38400–38463`, **port-per-room**, plain `ws://` (no TLS on game ports yet)
+- **Room ports:** **`38400–38599`**, **port-per-room**, plain `ws://` (no TLS on game ports yet).
+  This is the full range configured in `deploy/docker/.env` and published by Compose, and `ufw`
+  now opens all of it. (The old box only opened `38400:38463`.)
+- **Firewall:** `ufw` allows `OpenSSH`, `80,443/tcp`, `38400:38599/tcp`.
+- **Host static trees:** `/srv/er` (Elden Ring pages) and `/srv/bb` (Bloodborne pages), bind-mounted
+  into `web`. Promotion scripts fetched to the box: **`/root/deploy_site.sh`** (from bb-archipelago,
+  populates `/srv/bb`) and **`/root/deploy_wizard.sh`** (from er-archipelago, populates `/srv/er`).
+- **Pinned refs in `.env`:** `BB_REF=v0.1.0.2`, `BB_HOST_STATIC_DIR=/srv/bb`, `ER_REF=v0.6.0.5`.
+- **Bloodborne:** live at `/bb/`. The `BB_LIVE=1` Actions variable is set and the
+  bb-channel-parity `live` job is green.
 - **State proven end-to-end:** upload `.archipelago` → room hosts → client connects at `ws://peliarch.ca:38400`
 
-## Migration and Bloodborne go-live
+## Migration 2026-09-08
 
-Two things are in flight and they share a maintenance window: bringing `/bb/` (Bloodborne) live,
-and moving the whole deployment to a bigger Hetzner box. **The runbook is
-[`deploy/docker/MIGRATION.md`](deploy/docker/MIGRATION.md)** — copy-pasteable, with a checklist,
-two helper scripts (`deploy/docker/migrate-volumes.sh`, `deploy/docker/smoke.sh`), a rollback and
-a decommission step.
+The deployment moved from the old CX23 to the box above on **2026-09-08**, in the same maintenance
+window that brought Bloodborne live. The runbook that was followed is
+[`deploy/docker/MIGRATION.md`](deploy/docker/MIGRATION.md); it stays in the repo as the record of
+what was done and as the procedure for the next move.
 
-Read it before touching the box. In particular it is the only place that records that the three
-Docker volumes are **project-prefixed on disk** (`peliarch_peliarch_data`, not `peliarch_data`),
-and that Caddy cannot issue a cert for `peliarch.ca` from an IP the DNS A record does not name yet.
+What moved and how it went:
 
-Once the cutover is verified, its Appendix A lists every line in this file and in `DEPLOY.md` that
-has to be corrected — the box type, the price, the port range, and the outstanding `www` follow-up
-below.
+- All three Docker volumes were streamed old → new: `peliarch_peliarch_data` (6.1 MB, **17 rooms**),
+  `peliarch_caddy_data` (which is what carried the existing peliarch.ca certificate across, so no
+  cert had to be ordered before DNS moved) and `peliarch_caddy_config`.
+- The old box's `web` container was **stopped** (frozen) before the final data re-sync, so nothing
+  advanced on the old side after the copy.
+- DNS `A` records for `peliarch.ca` and `www` were moved at **Porkbun**.
+- Verified from outside the box: every page returns 200 and the certificate is served. `/bb/` is live.
+- The ER pages had to be **redeployed after the move**, because er-archipelago promoted `stable` to
+  `v0.6.0.5` the same day; `/root/deploy_wizard.sh` was re-run against the new stable.
+- The old box's checkout carried exactly one local edit — the Dockerfile `CMD` `--threads 64` — and
+  that change is already on `main`, so nothing was lost by abandoning it.
+
+**Old box: `135.181.100.88` (`ubuntu-4gb-hel1-1`, CX23).** Its `web` container is stopped and its
+`caddy` is still running. **Decommission it on or after 2026-09-15** (7 clean days), following the
+[Decommission](deploy/docker/MIGRATION.md#decommission) step — final volume backups off the box
+first. Deleting the server releases that IPv4.
 
 ## Fixes applied during the deploy (all now in the repo too)
 
@@ -47,10 +70,10 @@ During the deploy, a few fixes were applied **directly on the box** (sed/heredoc
 git add -A && git commit -m "deploy fixes: requirements-host, ws scheme, to_dict, large-tier" && git push
 
 # 2. on the box: pull the repo version (drops the manual box edits in favor of the committed ones)
-cd ~/Archipelago && git stash && git pull && cd deploy/docker && docker compose up -d --build
+cd /root/Archipelago && git stash && git pull && cd deploy/docker && docker compose up -d --build
 ```
 
-## Day-2 operations (on the box, in `~/Archipelago/deploy/docker/`)
+## Day-2 operations (on the box, as `root`, in `/root/Archipelago/deploy/docker/`)
 
 ```bash
 docker compose ps                  # status
@@ -71,7 +94,18 @@ docker run --rm -v peliarch_data:/data -v "$PWD":/backup alpine \
 ## Known follow-ups (none blocking — it works today)
 
 - **wss:// on room ports** — needed for browser clients / archipelago.gg interop. Desktop AP clients work on `ws://` now. See `DEPLOY.md §9`.
-- **`www` DNS** — add an A record `www` → box IPv4 (or CNAME `www` → `peliarch.ca`) so `www.peliarch.ca` resolves.
+- **`ACME_EMAIL` is still the placeholder** — `deploy/docker/.env` carries `ACME_EMAIL=you@example.com`.
+  Let's Encrypt rejects that address, so Caddy fell back to **ZeroSSL**, which issued fine and is what
+  is serving today (valid to 2026-11-27). It works, but set it to a real address so expiry warnings
+  reach a human and so the LE path is available again: edit `.env` and
+  `docker compose up -d` (Caddy re-reads it; the existing cert is untouched).
+- **`birdfuck.ca` in the `Caddyfile`** — `deploy/docker/Caddyfile` still has a site block for
+  `birdfuck.ca` / `www.birdfuck.ca`, whose DNS points at `207.207.210.36`, not this box. Caddy
+  therefore cannot complete an ACME challenge for it and logs a certificate failure on **every**
+  retry. Nothing else is affected. Fix it either by pointing that DNS at `46.62.130.40` or by
+  deleting the block; leaving it is a permanent source of scary-looking log noise.
+- **Decommission the old box on/after 2026-09-15** — `135.181.100.88`, still running `caddy` with a
+  stopped `web`. See the Migration note above.
 - **Donation URL** — set `DONATION_URL` in `deploy/docker/.env` to your real tip jar (currently the placeholder).
 - **Niche game deps** — add `pyevermizer` (Secret of Evermore) and `zilliandomizer` (Zillion) to `requirements-host.txt` only if you want to host those two games. Everything else loads.
 - **Nightly backup cron** — `DEPLOY.md §10`.
