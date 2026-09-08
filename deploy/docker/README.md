@@ -164,6 +164,21 @@ that isolation is what `TestGameTable` in `webgui/test_app.py` exists to pin. Se
 immutable tag (`v0.1.0-beta.5`) or a full SHA and the `bbtools` stage clones, installs the world
 with `tools/install_apworld.py --ap-dir`, and copies `site/` into the image.
 
+### Taking `/bb/` live on an existing host
+
+Setting `BB_REF` is a **build** arg, so it is not a restart — and a box that already serves `/er/`
+has state worth not losing. The ordered steps (promote the ledger first, then build, then populate
+`/srv/bb`, then smoke-test) are in **[`MIGRATION.md`](MIGRATION.md)**, Track A, steps G-equivalent
+`P4` and `N3`–`N7`. `smoke.sh NEWBOXIP [DOMAIN]` there checks every page this table exposes,
+including that `/bb/latest.json`'s `version` matches the ledger's stable tag; run it before you
+announce anything, and set the `BB_LIVE` Actions variable (which gates the `live` job of
+`bb-channel-parity.yml`) only after it passes.
+
+The same runbook covers moving the whole deployment to a bigger box, with
+[`migrate-volumes.sh`](migrate-volumes.sh) for the three named volumes — note that Compose creates
+them **project-prefixed** (`peliarch_peliarch_data`), which is the trap that makes a migration look
+successful and arrive empty.
+
 Bloodborne's releases are all GitHub **prereleases**. `release/CHANNELS.tsv` in bb-archipelago is
 what promotes one to `stable`, and `/downloads` follows the ledger rather than the prerelease
 flag; see the note on `_resolve` in `webgui/releases.py`.
