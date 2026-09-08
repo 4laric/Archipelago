@@ -13,12 +13,18 @@ rebuilds the image on NEWBOX anyway. Doing Bloodborne first on the old box means
 rebuild twice and cutting DNS over to a configuration nobody has smoke-tested. If you only want
 Track A today, run steps **G1–G5** on the current box and stop; nothing in them depends on NEWBOX.
 
+> ✅ **This migration was executed on 2026-09-08 and is complete.** Everything below is kept as the
+> record of what was done, and as the procedure for the next move. The resulting live state is
+> `OPERATIONS.md` → "Live deployment"; the leftover follow-ups are in its "Known follow-ups".
+> The only open item from this runbook is **X1**, decommissioning `135.181.100.88` on or after
+> **2026-09-15**.
+
 Placeholders used throughout — substitute before pasting:
 
 | Placeholder | Meaning | Today |
 |---|---|---|
 | `OLDBOX` | current server IPv4 | `135.181.100.88` (CX23, Helsinki, Ubuntu 26.04) |
-| `NEWBOX` | target server IPv4 | believed `46.62.130.40` — **confirm in the Hetzner console**; size unconfirmed, see risk R4 |
+| `NEWBOX` | target server IPv4 | `46.62.130.40` — **confirmed**; `ubuntu-16gb-hel1-1`, Helsinki, 8 vCPU / 15 GB RAM / 150 GB disk, Ubuntu 26.04 (risk R4 resolved) |
 | `DOMAIN` | the site hostname | `peliarch.ca` |
 | `BB_TAG` | Bloodborne stable tag | `v0.1.0.2` (being promoted to non-prerelease in parallel; **it must be the `stable` row of bb-archipelago's `release/CHANNELS.tsv` before you start** — see risk R2) |
 
@@ -30,29 +36,29 @@ Work top to bottom. Nothing below the DNS line is reversible in seconds, everyth
 
 | # | Step | Track | Owner | Status |
 |---|---|---|---|---|
-| **P1** | Lower DNS TTL for `DOMAIN` and `www` to 300s — **≥24 h before the window** | B | | ☐ |
-| **P2** | Record current `.env`, published port range, `ufw` rules, volume sizes | A+B | | ☐ |
-| **P3** | Confirm no active rooms, or announce the window | A+B | | ☐ |
-| **P4** | Confirm `BB_TAG` is the `stable` row in bb-archipelago `release/CHANNELS.tsv` | A | | ☐ |
-| **N1** | Provision NEWBOX: `archi` user, Docker Engine + compose plugin, `ufw`, (optional) fail2ban | B | | ☐ |
-| **N2** | Clone `4laric/Archipelago` at a **pinned commit** into `~/Archipelago` | B | | ☐ |
-| **N3** | Copy `.env` across; set `BB_REF=BB_TAG`, `BB_HOST_STATIC_DIR=/srv/bb`, leave `ER_REF` alone | A+B | | ☐ |
-| **F1** | **Freeze OLDBOX**: `docker compose stop web` | B | | ☐ |
-| **F2** | Transfer `peliarch_data`, `caddy_data`, `caddy_config` with `./migrate-volumes.sh` | B | | ☐ |
-| **F3** | Transfer `/srv/er` | B | | ☐ |
-| **N4** | Confirm the carried-over cert is in `caddy_data` (this is the cert-ordering answer) | B | | ☐ |
-| **N5** | `docker compose build` on NEWBOX with **both** refs | A+B | | ☐ |
-| **N6** | Populate `/srv/bb` (bb `deploy_site.sh`) and re-run er `deploy_wizard.sh` for `/srv/er` | A+B | | ☐ |
-| **N7** | `docker compose up -d` | A+B | | ☐ |
-| **S1** | `./smoke.sh NEWBOX DOMAIN` — every page, pre-DNS | A+B | | ☐ |
-| **S2** | Room count and `rooms.json` match OLDBOX | B | | ☐ |
-| **S3** | Manual: upload a small `.archipelago`, connect an AP client to `ws://NEWBOX:PORT` | A+B | | ☐ |
-| **D1** | **DNS cutover**: A records for apex and `www` → NEWBOX | B | | ☐ |
-| **V1** | Cert: `docker compose logs caddy`, `curl -vI https://DOMAIN` from off-box | B | | ☐ |
-| **V2** | Set `BB_LIVE=1` Actions variable; run both parity workflows' `live` jobs | A | | ☐ |
-| **V3** | Raise TTL back to 3600s | B | | ☐ |
-| **V4** | Update the doc references in the appendix (old IP, box size, port range) | A+B | | ☐ |
-| **X1** | After N=7 days with no rollback: final backup, then delete OLDBOX | B | | ☐ |
+| **P1** | Lower DNS TTL for `DOMAIN` and `www` to 300s — **≥24 h before the window** | B | | ✅ |
+| **P2** | Record current `.env`, published port range, `ufw` rules, volume sizes | A+B | | ✅ |
+| **P3** | Confirm no active rooms, or announce the window | A+B | | ✅ |
+| **P4** | Confirm `BB_TAG` is the `stable` row in bb-archipelago `release/CHANNELS.tsv` | A | | ✅ |
+| **N1** | Provision NEWBOX: `archi` user, Docker Engine + compose plugin, `ufw`, (optional) fail2ban | B | | ✅ |
+| **N2** | Clone `4laric/Archipelago` at a **pinned commit** into `~/Archipelago` | B | | ✅ |
+| **N3** | Copy `.env` across; set `BB_REF=BB_TAG`, `BB_HOST_STATIC_DIR=/srv/bb`, leave `ER_REF` alone | A+B | | ✅ |
+| **F1** | **Freeze OLDBOX**: `docker compose stop web` | B | | ✅ |
+| **F2** | Transfer `peliarch_data`, `caddy_data`, `caddy_config` with `./migrate-volumes.sh` | B | | ✅ |
+| **F3** | Transfer `/srv/er` | B | | ✅ |
+| **N4** | Confirm the carried-over cert is in `caddy_data` (this is the cert-ordering answer) | B | | ✅ |
+| **N5** | `docker compose build` on NEWBOX with **both** refs | A+B | | ✅ |
+| **N6** | Populate `/srv/bb` (bb `deploy_site.sh`) and re-run er `deploy_wizard.sh` for `/srv/er` | A+B | | ✅ |
+| **N7** | `docker compose up -d` | A+B | | ✅ |
+| **S1** | `./smoke.sh NEWBOX DOMAIN` — every page, pre-DNS | A+B | | ✅ |
+| **S2** | Room count and `rooms.json` match OLDBOX | B | | ✅ |
+| **S3** | Manual: upload a small `.archipelago`, connect an AP client to `ws://NEWBOX:PORT` | A+B | | ✅ |
+| **D1** | **DNS cutover**: A records for apex and `www` → NEWBOX | B | | ✅ |
+| **V1** | Cert: `docker compose logs caddy`, `curl -vI https://DOMAIN` from off-box | B | | ✅ |
+| **V2** | Set `BB_LIVE=1` Actions variable; run both parity workflows' `live` jobs | A | | ✅ |
+| **V3** | Raise TTL back to 3600s | B | | ✅ |
+| **V4** | Update the doc references in the appendix (old IP, box size, port range) | A+B | | ✅ |
+| **X1** | After N=7 days with no rollback: final backup, then delete OLDBOX | B | | ☐ **due 2026-09-15** |
 
 **Rollback line:** everything up to and including **S3** is undone by doing nothing — OLDBOX still
 holds every byte, because F1 only *stopped* `web`. After **D1**, rollback is "point DNS back and
@@ -129,6 +135,13 @@ curl -fsSL https://raw.githubusercontent.com/4laric/bb-archipelago/main/release/
 ---
 
 ## N — Provision NEWBOX
+
+> **What was actually done on 2026-09-08, where it differs from the steps below:** the stack runs as
+> **`root`**, not as an `archi` user, and the repo lives at **`/root/Archipelago`**. Docker came from
+> the Ubuntu packages `docker.io` (29.1.3) and `docker-compose-v2` (2.40.3) rather than Docker's own
+> apt repo. `ufw` was opened for `OpenSSH`, `80,443/tcp` and the **full** `38400:38599/tcp` range
+> (see risk R5). Substitute `archi@` → `root@` and `~/Archipelago` → `/root/Archipelago` when
+> re-reading any command below as history rather than as instructions.
 
 ### N1. Base system
 
@@ -512,25 +525,27 @@ stranger's box.
 
 ---
 
-## Appendix A — what to update after cutover
+## Appendix A — what to update after cutover ✅ done
 
-Every place in this repo that names the old box, its IP, or a stale port range. Do these as one
-commit after V1 passes.
+Every place in this repo that named the old box, its IP, or a stale port range. Done as one commit
+after V1 passed, on 2026-09-08.
 
-| File | Line / section | What is wrong | Change to |
-|---|---|---|---|
-| `OPERATIONS.md` | "Live deployment" → **Box** | says Hetzner **CX23**, Helsinki, ~$7/mo | NEWBOX's actual type, region and price (confirm in the Hetzner console — see risk R4) |
-| `OPERATIONS.md` | "Live deployment" → **Room ports** | says `38400–38463` — **already wrong today**, compose and `.env` say `38400-38599` | `38400–38599`, or whatever `.env` resolves to |
-| `OPERATIONS.md` | "Known follow-ups" → **`www` DNS** | listed as outstanding | delete it once D1 adds the record |
-| `OPERATIONS.md` | "Known follow-ups" → **Donation URL** | may still be the placeholder | check `DONATION_URL` in the migrated `.env` |
-| `DEPLOY.md` | title line 1 | "Deploying Peliarch on a Hetzner **CX23**" | NEWBOX's type |
-| `DEPLOY.md` | placeholder table, `BOXIP` row | example `65.21.x.x` | leave as an example, but confirm it is not mistaken for the real IP |
-| `DEPLOY.md` | §5 firewall | the room range opened there | keep in step with `.env` |
-| `DEPLOY.md` | "Cost recap" | "CX23 Helsinki ≈ $7.09/mo" | NEWBOX's price |
-| `deploy/docker/README.md` | "Scaling notes" | "Bigger box first… nothing changes except widening `PORT_START..PORT_END`" | still true, and now it has actually been done — link here |
+| File | Line / section | What was wrong | What it says now | Status |
+|---|---|---|---|---|
+| `OPERATIONS.md` | "Live deployment" → **Box** | Hetzner **CX23**, Helsinki, ~$7/mo | `ubuntu-16gb-hel1-1`, `46.62.130.40`, Helsinki, 8 vCPU / 15 GB RAM / 150 GB disk, Ubuntu 26.04 — plus the `root` / `/root/Archipelago` paths, the Docker package versions, the `ufw` rules, the `/srv/er` + `/srv/bb` trees and the two deploy scripts | ✅ |
+| `OPERATIONS.md` | "Live deployment" → **Room ports** | duplicated, one copy saying `38400–38463` | a single entry, `38400–38599`, matching `.env`, Compose and `ufw` | ✅ |
+| `OPERATIONS.md` | "Known follow-ups" → **`www` DNS** | listed as outstanding | deleted — D1 moved both A records at Porkbun and `www.peliarch.ca` resolves | ✅ |
+| `OPERATIONS.md` | "Known follow-ups" → **Donation URL** | may still be the placeholder | checked in the migrated `.env`; still a placeholder, so the item stays | ✅ (kept) |
+| `OPERATIONS.md` | new "Migration 2026-09-08" section | did not exist | what moved, the volume sizes and room count, the DNS move, the ER redeploy, and the old box's decommission date | ✅ |
+| `OPERATIONS.md` | "Known follow-ups" | — | two new items found during the move: the placeholder `ACME_EMAIL` and the `birdfuck.ca` Caddy block | ✅ |
+| `DEPLOY.md` | title line 1 | "Deploying Peliarch on a Hetzner **CX23**" | **left as-is on purpose** — the guide is still a CX23 walkthrough and the CX23 is still the right starting size; the Cost recap now points at what is actually live | ✅ (deliberate) |
+| `DEPLOY.md` | placeholder table, `BOXIP` row | example `65.21.x.x` | confirmed an example, not mistakable for the real IP; unchanged | ✅ |
+| `DEPLOY.md` | §5 firewall | opened `40000:40063/tcp`, a range nothing uses | `38400:38599/tcp`, matching `PORT_START..PORT_END` in `.env`, with a note saying they must match | ✅ |
+| `DEPLOY.md` | "Cost recap" | "CX23 Helsinki ≈ $7.09/mo" | keeps the CX23 figure for the guide, then records that live is a 16 GB box and says to read the plan's price off the Hetzner console | ✅ |
+| `deploy/docker/README.md` | "Scaling notes" | "Bigger box first… nothing changes except widening `PORT_START..PORT_END`" | same advice, now noting it has actually been done, with the real range and links to this runbook and `OPERATIONS.md` | ✅ |
 
 No source file hardcodes `135.181.100.88`; the IP lives only in DNS, in ssh config and in this
-runbook. Confirm before the decommission:
+runbook. Confirm again before the decommission:
 
 ```bash
 grep -rn '135\.181\.100\.88' . || echo "no source reference to the old IP"
@@ -595,11 +610,15 @@ grep -rn '135\.181\.100\.88' . || echo "no source reference to the old IP"
   not by game, and the port range caps rooms that *exist* at 200. Bloodborne roughly doubles the
   creation rate against an unchanged budget. Nothing to change on cutover day, but if
   `_pick_free_port` starts refusing, that is why, and deleting finished rooms is the first move.
-- **R4 — NEWBOX is a placeholder.** `46.62.130.40` is *believed* correct and the instance type is
-  unknown. Confirm both in the Hetzner console before P1; a migration to the wrong IP is discovered
-  at D1, which is the worst possible moment. RAM is what caps concurrent rooms (~160–200 MB each),
-  so the size determines whether widening the port range is even useful.
-- **R5 — the stale port range in `OPERATIONS.md`.** `38400–38463` there versus `38400-38599` in
+- **R4 — NEWBOX is a placeholder.** ✅ **Resolved 2026-09-08.** `46.62.130.40` was confirmed in the
+  Hetzner console and is the box the site now runs on: `ubuntu-16gb-hel1-1`, Helsinki,
+  **8 vCPU / 15 GB RAM / 150 GB disk**, Ubuntu 26.04. RAM is what caps concurrent rooms
+  (~160–200 MB each), so 15 GB is what makes the full `38400–38599` range worth opening — which it
+  now is. The original warning stands for the *next* migration: confirm the IP and the size before
+  P1, because a migration to the wrong IP is discovered at D1, the worst possible moment.
+- **R5 — the stale port range in `OPERATIONS.md`.** ✅ **Resolved 2026-09-08** — `OPERATIONS.md` now
+  says `38400–38599`, and `ufw` on NEWBOX opens `38400:38599/tcp` (OLDBOX only ever opened
+  `38400:38463`). The hazard as originally written: `38400–38463` there versus `38400-38599` in
   compose. Open the wrong range on NEWBOX and rooms above 38463 look perfectly healthy from the
   inside — listening, `alive: true` — and are unreachable from the internet.
 - **R6 — rooms mid-flight.** Any path here disconnects live sessions; the rooms survive, the

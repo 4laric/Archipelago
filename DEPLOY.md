@@ -76,12 +76,14 @@ cd archipelago-go && go build -o peliarch . && cd ..
 
 Rooms are **port-per-room** (`HOSTING.md §3`): each running room binds one port. Open a
 range big enough for your max *concurrent* rooms (a 4 GB box comfortably runs ~10–15
-stock rooms at once; 64 ports is plenty of headroom).
+stock rooms at once). Open **the same range** `PORT_START..PORT_END` names in
+`deploy/docker/.env` — `38400–38599` today — because a room above the opened range listens
+happily inside the box and is simply unreachable from the internet.
 
 ```bash
 sudo ufw allow OpenSSH
-sudo ufw allow 80,443/tcp       # website (HTTP→HTTPS via Caddy)
-sudo ufw allow 40000:40063/tcp  # room ports
+sudo ufw allow 80,443/tcp         # website (HTTP→HTTPS via Caddy)
+sudo ufw allow 38400:38599/tcp    # room ports — must match PORT_START..PORT_END in .env
 sudo ufw --force enable
 sudo ufw status
 ```
@@ -192,6 +194,11 @@ For real durability, sync that directory to Hetzner Object Storage or Backblaze 
 ---
 
 ### Cost recap
-CX23 Helsinki ≈ **$7.09/mo** (incl. IPv4), 20 TB traffic included — the whole thing
-(website + community rooms) runs inside that. Donation jar covers it with room to spare.
-Resize to CX33 (8 GB) with a reboot if `free -h` ever shows sustained memory pressure.
+This guide is written for a CX23 (≈ **$7.09/mo** incl. IPv4, 20 TB traffic), which is enough for the
+website plus community rooms and is still the right starting size.
+
+**Live today is bigger.** On 2026-09-08 the deployment moved to a Helsinki 16 GB box
+(`ubuntu-16gb-hel1-1`, 8 vCPU / 15 GB RAM / 150 GB disk) — a few times the CX23's monthly rate;
+check the current plan row in the Hetzner console for the exact figure. RAM is what caps concurrent
+rooms (~160–200 MB each), so the extra memory is the whole point of the move. Traffic is still
+included and the donation jar still covers it. See `OPERATIONS.md` → "Live deployment".
