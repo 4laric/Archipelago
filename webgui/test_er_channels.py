@@ -119,8 +119,8 @@ def test_fixpack_download_pointer_drift_fails():
 
 BB = channels.GAMES["bb"]
 BB_LEDGER = b"stable\tv0.1.0-beta.5\t2026-09-05\nbeta\tmain\t2026-09-05\n"
-BB_STABLE = b'<script>{"apworld_version": "0.1.0-beta.5"}</script>'
-BB_BETA = b'<script>{"apworld_version": "0.1.0-beta.6"}</script>'
+BB_STABLE = b'<script>{"apworld_version": "0.1.0"}</script><!-- inputs_hash a1 -->'
+BB_BETA = b'<script>{"apworld_version": "0.1.0"}</script><!-- inputs_hash b2 -->'
 BB_DOWNLOADS = b'/releases/download/v0.1.0-beta.5/BloodborneAPLauncher-win-x64.zip'
 
 
@@ -170,3 +170,31 @@ def test_bb_main_leaking_into_stable_fails():
     errors = channels.verify(bb_fixture(live_stable=BB_BETA), "https://example.test", game=BB)
     assert any("stable wizard is not v0.1.0-beta.5" in error for error in errors)
     assert any("byte-identical" in error for error in errors)
+
+
+def test_bb_embedded_version_is_vrm_only_for_beta_and_fixpack_tags():
+    """The wizard can only embed X.Y.Z, so the ledger tag is reduced to V.R.M before comparing."""
+    assert BB.embedded_version("v0.1.0-beta.5") == "0.1.0"
+    assert BB.embedded_version("v0.1.0.2") == "0.1.0"
+    assert channels.GAMES["er"].embedded_version("v0.6.0.2") == "0.6.0.2"
+
+
+def test_bb_fixpack_stable_passes_with_a_three_part_wizard_version():
+    ledger = b"stable\tv0.1.0.2\t2026-09-08\nbeta\tmain\t2026-09-08\n"
+    downloads = b'/releases/download/v0.1.0.2/BloodborneAPLauncher-win-x64.zip'
+    raw = "https://raw.githubusercontent.com/4laric/bb-archipelago"
+    values = {
+        f"{raw}/main/release/CHANNELS.tsv": ledger,
+        f"{raw}/v0.1.0.2/site/wizard.html": BB_STABLE,
+        f"{raw}/main/site/wizard.html": BB_BETA,
+        "https://example.test/bb/wizard.html": BB_STABLE,
+        "https://example.test/bb/beta/wizard.html": BB_BETA,
+        "https://example.test/downloads": downloads,
+    }
+    assert channels.verify(values.__getitem__, "https://example.test", game=BB) == []
+
+
+def test_bb_wrong_vrm_in_wizard_still_fails():
+    stale = b'<script>{"apworld_version": "0.0.9"}</script><!-- inputs_hash a1 -->'
+    errors = channels.verify(bb_fixture(live_stable=stale), "https://example.test", game=BB)
+    assert any("expected 0.1.0" in error for error in errors)
