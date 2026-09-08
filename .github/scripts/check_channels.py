@@ -34,7 +34,8 @@ class GameChannels:
     under that loader. A plain class has no such dependency.
     """
 
-    def __init__(self, key, name, repo, root, wizard_path, bundle_prefix, tag_pattern):
+    def __init__(self, key, name, repo, root, wizard_path, bundle_prefix, tag_pattern,
+                 embeds_full_tag=True):
         self.key = key
         self.name = name
         self.repo = repo
@@ -42,6 +43,21 @@ class GameChannels:
         self.wizard_path = wizard_path      # path to the builder inside the repo
         self.bundle_prefix = bundle_prefix  # filename prefix in the /downloads release link
         self.tag_pattern = tag_pattern
+        #: What the builder embeds as `apworld_version`. ER embeds the whole tag minus `v`,
+        #: fixpack included. Bloodborne embeds `archipelago.json`'s `world_version`, which
+        #: Archipelago forces to strict X.Y.Z (`tuplize_version` raises on anything else), so a
+        #: `v0.1.0.2` or `v0.1.0-beta.5` stable can only ever embed `0.1.0`.
+        self.embeds_full_tag = embeds_full_tag
+
+    def embedded_version(self, tag: str) -> str:
+        """The `apworld_version` a builder built at `tag` embeds."""
+        version = tag.removeprefix("v")
+        if self.embeds_full_tag:
+            return version
+        match = re.match(r"\d+\.\d+\.\d+", version)
+        if not match:
+            raise ValueError(f"{tag!r} does not start with a V.R.M version")
+        return match.group(0)
 
 
 GAMES = {
@@ -51,7 +67,7 @@ GAMES = {
     "bb": GameChannels(
         key="bb", name="BB", repo="4laric/bb-archipelago", root="bb",
         wizard_path="site/wizard.html", bundle_prefix="BloodborneAPLauncher-",
-        tag_pattern=VRMF_BETA),
+        tag_pattern=VRMF_BETA, embeds_full_tag=False),
 }
 
 
@@ -114,9 +130,10 @@ def verify(get, base_url: str, repo: str = None, game: GameChannels = None) -> l
     if live_beta != expected_beta:
         errors.append(
             f"beta wizard is not main: live {digest(live_beta)}, expected {digest(expected_beta)}")
-    if wizard_version(live_stable) != stable.removeprefix("v"):
+    if wizard_version(live_stable) != game.embedded_version(stable):
         errors.append(
-            f"stable wizard embeds {wizard_version(live_stable)}, channel ledger says {stable}")
+            f"stable wizard embeds {wizard_version(live_stable)}, channel ledger says {stable} "
+            f"(expected {game.embedded_version(stable)})")
     if download_ref(downloads, game) != stable:
         errors.append(
             f"downloads points at {download_ref(downloads, game)}, channel ledger says {stable}")
