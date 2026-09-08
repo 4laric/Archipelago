@@ -5,12 +5,32 @@ Written down on launch day. This is the "how it's deployed and how to run it" do
 ## Live deployment
 
 - **Site:** https://peliarch.ca (HTTPS, auto-cert via Caddy — cert issued ✅)
-- **Box:** Hetzner **CX23**, Helsinki, Ubuntu 26.04, ~$7/mo, IPv4 + 20 TB transfer
+- **Box:** Hetzner **CX23**, Helsinki, Ubuntu 26.04, ~$7/mo, IPv4 + 20 TB transfer —
+  ⚠ **see `deploy/docker/MIGRATION.md` until the cutover completes.** A move to a bigger box is
+  in flight; this line is the *old* box and is not authoritative while that runbook is open.
+- **Room ports:** the range below is stale. `deploy/docker/.env` and `docker-compose.yml` say
+  `38400-38599`, and that is the truth — the allocator walks it and Compose publishes it.
 - **Stack:** Docker Compose at `~/Archipelago/deploy/docker/`
   - `web` container = Flask GUI + per-room MultiServer processes (+ bundled `peliarch` Go binary for Large tier)
   - `caddy` container = TLS termination / reverse proxy for the website
 - **Room ports:** `38400–38463`, **port-per-room**, plain `ws://` (no TLS on game ports yet)
 - **State proven end-to-end:** upload `.archipelago` → room hosts → client connects at `ws://peliarch.ca:38400`
+
+## Migration and Bloodborne go-live
+
+Two things are in flight and they share a maintenance window: bringing `/bb/` (Bloodborne) live,
+and moving the whole deployment to a bigger Hetzner box. **The runbook is
+[`deploy/docker/MIGRATION.md`](deploy/docker/MIGRATION.md)** — copy-pasteable, with a checklist,
+two helper scripts (`deploy/docker/migrate-volumes.sh`, `deploy/docker/smoke.sh`), a rollback and
+a decommission step.
+
+Read it before touching the box. In particular it is the only place that records that the three
+Docker volumes are **project-prefixed on disk** (`peliarch_peliarch_data`, not `peliarch_data`),
+and that Caddy cannot issue a cert for `peliarch.ca` from an IP the DNS A record does not name yet.
+
+Once the cutover is verified, its Appendix A lists every line in this file and in `DEPLOY.md` that
+has to be corrected — the box type, the price, the port range, and the outstanding `www` follow-up
+below.
 
 ## Fixes applied during the deploy (all now in the repo too)
 
