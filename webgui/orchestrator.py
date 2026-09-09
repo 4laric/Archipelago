@@ -1001,7 +1001,12 @@ class RoomManager:
                 retention = self.used_room_retention
                 age = now - room.last_active_at
                 kind = "previously used"
-            if retention <= 0 or age < retention:
+            if retention <= 0:
+                continue
+            if age < retention:
+                logger.debug(
+                    "Room %s kept: %s, %.0fs of %.0fs retention used", room.id, kind, age, retention
+                )
                 continue
             try:
                 self.delete_room(
@@ -1014,40 +1019,65 @@ class RoomManager:
         return deleted
 
     def _idle_loop(self):
+        logger.info(
+            "Room reaper started: never-connected retention %ds, used-room retention %ds "
+            "(0 = disabled), one pass every 60 s",
+            self.never_connected_retention, self.used_room_retention,
+        )
         while not self._stop_idle.wait(timeout=60):
-            now = time.time()
-            self.hibernate_idle_rooms(now)
-            self.cleanup_stale_rooms(now)
+            self.reaper_pass(time.time())
 
-            # Crash-restart (with backoff)
-            for room in self._store.all():
-                if room.status != "RUNNING" or room._proc is None:
-                    continue
-                retcode = room._proc.poll()
-                if retcode is not None:
-                    logger.warning(
-                        "Room %s process exited (rc=%s), crash_count=%d",
-                        room.id, retcode, room.crash_count
+    def reaper_pass(self, now: float) -> None:
+        """One reaper pass, with every stage isolated from the others.
+
+        🛑 THIS USED TO BE THE LOOP BODY WITH NO GUARD. `_idle_loop` is a daemon thread and
+        nothing restarts it: one exception escaping any stage -- a store write refused by the
+        volume, a `/proc` read that changed shape, a `poll()` on a process the OS already
+        reaped -- ended hibernation AND retention cleanup for the rest of the container's life,
+        and the only symptom was rooms that never went away. The 2026-09-09 report was exactly
+        "rooms never deleted", with no failure line anywhere to go with it. Each stage now
+        fails alone, loudly, and the next pass runs anyway.
+        """
+        for name, stage in (
+            ("hibernate", self.hibernate_idle_rooms),
+            ("cleanup", self.cleanup_stale_rooms),
+            ("crash-restart", self._restart_crashed_rooms),
+        ):
+            try:
+                stage(now)
+            except Exception:
+                logger.exception("Room reaper: %s stage failed this pass; continuing", name)
+
+    def _restart_crashed_rooms(self, now: Optional[float] = None) -> None:
+        """Crash-restart (with backoff) for RUNNING rooms whose process has exited."""
+        for room in self._store.all():
+            if room.status != "RUNNING" or room._proc is None:
+                continue
+            retcode = room._proc.poll()
+            if retcode is not None:
+                logger.warning(
+                    "Room %s process exited (rc=%s), crash_count=%d",
+                    room.id, retcode, room.crash_count
+                )
+                if room.crash_count >= MAX_CRASH_RESTARTS:
+                    room.status = "CRASHED"
+                    room._proc = None
+                    self._store.put(room)
+                    logger.error(
+                        "Room %s exceeded max crash restarts — parked", room.id
                     )
-                    if room.crash_count >= MAX_CRASH_RESTARTS:
-                        room.status = "CRASHED"
-                        room._proc = None
-                        self._store.put(room)
-                        logger.error(
-                            "Room %s exceeded max crash restarts — parked", room.id
-                        )
-                    else:
-                        room.crash_count += 1
-                        room.status = "HIBERNATED"
-                        room._proc = None
-                        self._store.put(room)
-                        backoff = CRASH_BACKOFF_BASE * (2 ** (room.crash_count - 1))
-                        logger.info(
-                            "Room %s will restart in %.0f s", room.id, backoff
-                        )
-                        threading.Timer(
-                            backoff, self._crash_restart, args=(room.id,)
-                        ).start()
+                else:
+                    room.crash_count += 1
+                    room.status = "HIBERNATED"
+                    room._proc = None
+                    self._store.put(room)
+                    backoff = CRASH_BACKOFF_BASE * (2 ** (room.crash_count - 1))
+                    logger.info(
+                        "Room %s will restart in %.0f s", room.id, backoff
+                    )
+                    threading.Timer(
+                        backoff, self._crash_restart, args=(room.id,)
+                    ).start()
 
     def _crash_restart(self, room_id: str):
         try:
