@@ -137,3 +137,36 @@ def test_pre_feature_room_records_receive_the_safe_long_retention(tmp_path):
 
     room = RoomStore(str(path)).get("legacy")
     assert room.first_connected_at == 20.0
+
+
+def test_a_failing_hibernate_stage_does_not_stop_retention_cleanup(tmp_path, monkeypatch):
+    """The reaper thread has no supervisor. Before reaper_pass existed, one exception in the
+    hibernate stage killed the daemon thread and retention cleanup with it -- the 2026-09-09
+    'rooms never deleted' report. Each stage must fail alone."""
+    manager = _manager(tmp_path, never_connected_retention=10)
+    room = _room(manager)
+
+    def boom(now=None):
+        raise RuntimeError("proc table unreadable")
+
+    monkeypatch.setattr(manager, "hibernate_idle_rooms", boom)
+    manager.reaper_pass(room.created_at + 11)
+    assert manager.list_rooms() == []
+
+
+def test_a_failing_cleanup_stage_does_not_stop_crash_restart(tmp_path, monkeypatch):
+    manager = _manager(tmp_path)
+    calls = []
+    monkeypatch.setattr(manager, "cleanup_stale_rooms", lambda now=None: 1 / 0)
+    monkeypatch.setattr(manager, "_restart_crashed_rooms", lambda now=None: calls.append(now))
+    manager.reaper_pass(12345.0)
+    assert calls == [12345.0]
+
+
+def test_reaper_pass_runs_every_stage_when_nothing_fails(tmp_path, monkeypatch):
+    manager = _manager(tmp_path)
+    seen = []
+    for name in ("hibernate_idle_rooms", "cleanup_stale_rooms", "_restart_crashed_rooms"):
+        monkeypatch.setattr(manager, name, (lambda n: (lambda now=None: seen.append(n)))(name))
+    manager.reaper_pass(1.0)
+    assert seen == ["hibernate_idle_rooms", "cleanup_stale_rooms", "_restart_crashed_rooms"]
