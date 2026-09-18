@@ -27,7 +27,7 @@ ARG ER_REF
 COPY deploy/docker/validate-ref.sh /usr/local/bin/validate-ref
 RUN validate-ref "$ER_REF" ER_REF
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates \
+ && apt-get install -y --no-install-recommends git ca-certificates curl unzip \
  && rm -rf /var/lib/apt/lists/*
 
 # 🛑 CACHE BUST, AND WHY IT IS NOT OPTIONAL.
@@ -65,8 +65,27 @@ RUN mkdir -p /er-static \
  && cp /er/wizard/wizard.html  /er-static/wizard.html \
  && cp /er/wizard/landing.html /er-static/landing.html \
  && cp /er/wizard/report.html  /er-static/report.html \
- && cp /er/wizard/tabs.js      /er-static/tabs.js \
- && cp /er/er-archipelago-check-browser.html /er-static/checks.html
+ && cp /er/wizard/tabs.js      /er-static/tabs.js
+
+# 🛑 THE CHECK BROWSER IS A RELEASE ASSET, NOT A FILE IN THE CHECKOUT. er-archipelago stopped
+# committing its generated offline pages on 2026-09-09 (af5e83a7: 3.2 MB of one-line JSON that
+# conflicted on every merge), so `cp /er/er-archipelago-check-browser.html` fails on every ref cut
+# after that. A v* tag publishes the page inside Optional-Offline-Tools.zip, built from THAT
+# release's corpus, so the tag pin keeps meaning what it always did: this page describes exactly the
+# apworld installed above. A moving source (GitHub Pages serves main) would not.
+#
+# Still no blanket `|| true`: `curl -f` and the `-s` test fail the build on a 404 or an empty file.
+# A 40-hex SHA pin has no release to fetch from, so it is refused with the reason rather than left
+# to surface as a bare 404 -- pin a tag, or build the page yourself and vendor it.
+RUN case "$ER_REF" in \
+      v*) ;; \
+      *) echo "ER_REF=$ER_REF is a commit SHA: the check browser is only published on a v* tag's release (Optional-Offline-Tools.zip). Pin a release tag." >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL --retry 3 -o /tmp/offline-tools.zip \
+      "https://github.com/4laric/er-archipelago/releases/download/${ER_REF}/Optional-Offline-Tools.zip" \
+ && unzip -p /tmp/offline-tools.zip er-archipelago-check-browser.html > /er-static/checks.html \
+ && test -s /er-static/checks.html \
+ && rm -f /tmp/offline-tools.zip
 RUN cp /er/er-archipelago-questline-dag.html /er-static/questlines.html 2>/dev/null || true
 
 # ---- stage 1c: the Bloodborne tooling, pinned ----
