@@ -1,5 +1,10 @@
 # Deploying Peliarch on a Hetzner CX23 (Helsinki, Ubuntu 26.04)
 
+> **This is the original bare-metal (systemd + gunicorn) walkthrough and it is no longer how
+> Peliarch runs.** Production is Docker Compose. To stand up a box, use
+> `deploy/docker/bootstrap-box.sh` (see `deploy/docker/MIGRATION.md`, "Fresh box, no old box").
+> This file is kept for its explanations of why each piece exists.
+
 One box runs everything: the **web GUI** (Flask), the **room processes** (stock
 MultiServer per room, plus `peliarch` for the Large tier), and **Caddy** in front
 for automatic HTTPS on the website. This is the single-node MVP from `HOSTING.md §8`,

@@ -30,6 +30,8 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 MIGRATION = os.path.join(HERE, "MIGRATION.md")
 SMOKE = os.path.join(HERE, "smoke.sh")
 MIGRATE = os.path.join(HERE, "migrate-volumes.sh")
+BOOTSTRAP = os.path.join(HERE, "bootstrap-box.sh")
+BACKUP = os.path.join(HERE, "backup.sh")
 COMPOSE = os.path.join(HERE, "docker-compose.yml")
 ENV_EXAMPLE = os.path.join(HERE, ".env.example")
 
@@ -195,13 +197,13 @@ class TestMigrateScript:
 # Both scripts, as shell
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("script", [SMOKE, MIGRATE])
+@pytest.mark.parametrize("script", [SMOKE, MIGRATE, BOOTSTRAP, BACKUP])
 def test_bash_syntax(script):
     result = subprocess.run(["bash", "-n", script], capture_output=True, text=True)
     assert result.returncode == 0, f"bash -n {os.path.basename(script)}:\n{result.stderr}"
 
 
-@pytest.mark.parametrize("script", [SMOKE, MIGRATE])
+@pytest.mark.parametrize("script", [SMOKE, MIGRATE, BOOTSTRAP, BACKUP])
 def test_shellcheck(script):
     if shutil.which("shellcheck") is None:
         pytest.skip("shellcheck is not installed here -- CI installs it; bash -n still ran")
@@ -210,7 +212,7 @@ def test_shellcheck(script):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("script", [SMOKE, MIGRATE])
+@pytest.mark.parametrize("script", [SMOKE, MIGRATE, BOOTSTRAP, BACKUP])
 def test_executable_bit(script):
     """Git tracks the mode; a runbook that says `./smoke.sh` needs it to be one."""
     result = subprocess.run(["git", "ls-files", "-s", "--", script],
@@ -219,3 +221,46 @@ def test_executable_bit(script):
         pytest.skip("not a git checkout, or the file is not tracked yet")
     mode = result.stdout.split()[0]
     assert mode == "100755", f"{os.path.basename(script)} is tracked as {mode}, want 100755"
+
+
+# ---------------------------------------------------------------------------
+# Fresh-box path: bootstrap-box.sh and backup.sh
+# ---------------------------------------------------------------------------
+
+class TestFreshBoxPath:
+    def test_bootstrap_opens_the_range_from_env_not_a_literal(self):
+        """The room range is one fact, written in .env; a second copy in a script is how the old
+        box ended up opening 38400:38463 while compose published 38400-38599."""
+        text = open(BOOTSTRAP, encoding="utf-8").read()
+        assert "PORT_START" in text and "PORT_END" in text
+        assert "38463" not in text
+
+    def test_bootstrap_refuses_a_placeholder_acme_email(self):
+        text = open(BOOTSTRAP, encoding="utf-8").read()
+        assert "example.com" in text and "ACME_EMAIL" in text
+
+    def test_bootstrap_never_overwrites_an_existing_env(self):
+        text = open(BOOTSTRAP, encoding="utf-8").read()
+        assert "if [ ! -f .env ]" in text
+
+    def test_backup_archives_every_stateful_volume(self):
+        text = open(BACKUP, encoding="utf-8").read()
+        with open(os.path.join(HERE, "docker-compose.yml"), encoding="utf-8") as fh:
+            compose = fh.read()
+        # caddy_config is derived from the Caddyfile and is deliberately not backed up.
+        for vol in ("peliarch_data", "caddy_data"):
+            assert vol in compose and vol in text
+
+    def test_backup_uses_the_project_prefixed_volume_names(self):
+        text = open(BACKUP, encoding="utf-8").read()
+        assert "${PROJECT}_peliarch_data" in text
+
+    def test_caddyfile_has_no_site_block_for_a_domain_this_box_does_not_serve(self):
+        """birdfuck.ca pointed elsewhere, so Caddy failed its ACME challenge on every retry."""
+        with open(os.path.join(HERE, "Caddyfile"), encoding="utf-8") as fh:
+            assert "birdfuck" not in fh.read()
+
+    def test_env_example_does_not_ship_a_placeholder_acme_email(self):
+        with open(os.path.join(HERE, ".env.example"), encoding="utf-8") as fh:
+            line = next(l for l in fh if l.startswith("ACME_EMAIL="))
+        assert "example.com" not in line

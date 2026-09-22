@@ -13,7 +13,7 @@ services:
         ER_REPO: ${ER_REPO:-https://github.com/4laric/er-archipelago.git}
         # Stable generation + static pages must be an immutable release. `main` here promoted the
         # development wizard to /er/ while /downloads still named v0.4.6 (#863).
-        ER_REF: ${ER_REF:?Set ER_REF to an immutable Elden Ring release tag, for example v0.6.0.2}
+        ER_REF: ${ER_REF:?Set ER_REF to an immutable Elden Ring release tag, for example v0.6.1.1}
         # Bloodborne, same shape -- and OPTIONAL, unlike ER_REF. Left unset the image builds with
         # an empty /bb-static and no bloodborne apworld, which webgui reads as "not deployed
         # here": /bb/ 404s, the game switcher does not appear, and /downloads and /hosting say
