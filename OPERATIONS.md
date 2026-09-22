@@ -2,7 +2,17 @@
 
 Written down on launch day. This is the "how it's deployed and how to run it" doc.
 
-## Live deployment
+## 2026-09-21: the box went dark, and the rebuild
+
+Both `46.62.130.40` and the old `135.181.100.88` stopped answering on every port (22, 80, 443,
+38400) while DNS still pointed at the first. The site, the room data and `.env` lived only on that
+server. The rebuild path is now scripted: **`deploy/docker/bootstrap-box.sh`** takes a bare Ubuntu
+box to a running site (see MIGRATION.md, "Fresh box, no old box"), and **`deploy/docker/backup.sh`**
+is installed as a nightly cron and can push to `BACKUP_REMOTE` so the next outage does not take the
+data with it. Everything below describes the box as it was before the outage; where a fact here
+disagrees with a freshly bootstrapped box, the box and `.env.example` win.
+
+## Live deployment (as of 2026-09-08, before the outage above)
 
 - **Site:** https://peliarch.ca and https://www.peliarch.ca (HTTPS via Caddy; the current
   certificate is **ZeroSSL**-issued and valid to **2026-11-27** — see the `ACME_EMAIL` follow-up
@@ -91,10 +101,14 @@ docker run --rm -v peliarch_data:/data -v "$PWD":/backup alpine \
   tar czf /backup/peliarch-$(date +%F).tgz -C /data .
 ```
 
-## Known follow-ups (none blocking — it works today)
+## Known follow-ups
+
+Resolved by the 2026-09-21 rebuild work: the `ACME_EMAIL` placeholder (`.env.example` no longer ships
+one and `bootstrap-box.sh` refuses it), the `birdfuck.ca` Caddy block (removed), the nightly backup
+cron (`backup.sh`, installed by the bootstrap), and decommissioning the old box (moot). Still open:
 
 - **wss:// on room ports** — needed for browser clients / archipelago.gg interop. Desktop AP clients work on `ws://` now. See `DEPLOY.md §9`.
-- **`ACME_EMAIL` is still the placeholder** — `deploy/docker/.env` carries `ACME_EMAIL=you@example.com`.
+- ~~**`ACME_EMAIL` is still the placeholder**~~ (fixed, see above) — `deploy/docker/.env` carries `ACME_EMAIL=you@example.com`.
   Let's Encrypt rejects that address, so Caddy fell back to **ZeroSSL**, which issued fine and is what
   is serving today (valid to 2026-11-27). It works, but set it to a real address so expiry warnings
   reach a human and so the LE path is available again: edit `.env` and

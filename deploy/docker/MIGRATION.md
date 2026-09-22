@@ -30,6 +30,29 @@ Placeholders used throughout — substitute before pasting:
 
 ---
 
+## Fresh box, no old box (added 2026-09-21)
+
+The steps below assume an OLDBOX to freeze and copy from. When the old box is unreachable (both
+boxes were, on 2026-09-21) there is nothing to copy, and the procedure collapses to **N1-N7, S1
+and D1** with the transfer steps (F1-F3) dropped or replaced by a restore from `backup.sh`:
+
+```bash
+# as root on the fresh box
+DOMAIN=peliarch.ca ACME_EMAIL=<a real address> bash bootstrap-box.sh
+# with a backup directory made by backup.sh (copy it over first):
+DOMAIN=peliarch.ca ACME_EMAIL=<a real address> RESTORE_FROM=/root/restore/2026-09-20-0410 bash bootstrap-box.sh
+```
+
+`bootstrap-box.sh` does N1-N7 (packages, code, `.env`, firewall from `PORT_START..PORT_END`, both
+static trees, build, up) and installs the nightly `backup.sh` cron. Then S1 (`smoke.sh`) and D1
+(DNS) as written below. With no `caddy_data` to carry, the certificate is ordered fresh after DNS
+moves; there is nothing to do but wait for `docker compose logs caddy`.
+
+`backup.sh` reads `BACKUP_DIR`, `BACKUP_KEEP`, `BACKUP_REMOTE` and `BACKUP_RSYNC_SSH` from `.env`;
+without `BACKUP_REMOTE` the backup lives on the same disk it protects.
+
+---
+
 ## Checklist
 
 Work top to bottom. Nothing below the DNS line is reversible in seconds, everything above it is.
@@ -572,6 +595,10 @@ grep -rn '135\.181\.100\.88' . || echo "no source reference to the old IP"
 | `DOWNLOADS_TTL_SECONDS` | as-is | 900 |
 | `DOWNLOADS_TIMEOUT_SECONDS` | as-is | 4 |
 | `DOWNLOADS_GITHUB_TOKEN` | as-is | normally **absent**; keep it commented out, never blank |
+| `BACKUP_DIR` | as-is | optional, default `/root/backups`; `backup.sh` |
+| `BACKUP_KEEP` | as-is | optional, default 14 local backups |
+| `BACKUP_REMOTE` | as-is | optional rsync target that lets a backup survive the box |
+| `BACKUP_RSYNC_SSH` | as-is | optional; `"ssh -p 23"` for a Hetzner Storage Box |
 | `PORT_START` | as-is | must equal the `ufw` range and the published range |
 | `PORT_END` | as-is | inclusive; caps rooms that *exist*, not concurrent rooms |
 | `COMPOSE_PROJECT_NAME` | as-is | ⚠ **also the volume-name prefix** — changing it orphans every migrated volume |
