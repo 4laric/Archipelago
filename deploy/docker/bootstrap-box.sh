@@ -94,11 +94,13 @@ say "static pages"
 mkdir -p "${ER_HOST_STATIC_DIR:-/srv/er}" "${BB_HOST_STATIC_DIR:-/srv/bb}"
 curl -fsSL "${ER_RAW}/tools/deploy_wizard.sh" -o /root/deploy_wizard.sh
 chmod +x /root/deploy_wizard.sh
-ER_STATIC_DIR="${ER_HOST_STATIC_DIR:-/srv/er}" /root/deploy_wizard.sh --landing
+# 🛑 env -u: .env exports ER_REPO/BB_REPO as full git URLs for the Docker build, while the deploy
+# scripts read the same names as `owner/repo` -- inherited, they fetch raw.githubusercontent.com/https://...
+env -u ER_REPO -u BB_REPO ER_STATIC_DIR="${ER_HOST_STATIC_DIR:-/srv/er}" /root/deploy_wizard.sh --landing
 if [ -n "${BB_REF:-}" ]; then
   curl -fsSL "${BB_RAW}/tools/deploy_site.sh" -o /root/deploy_site.sh
   chmod +x /root/deploy_site.sh
-  BB_STATIC_DIR="${BB_HOST_STATIC_DIR:-/srv/bb}" /root/deploy_site.sh
+  env -u ER_REPO -u BB_REPO BB_STATIC_DIR="${BB_HOST_STATIC_DIR:-/srv/bb}" /root/deploy_site.sh
 fi
 
 # ---- 6. optional restore, BEFORE the stack starts so rooms come up with their saves -------------
